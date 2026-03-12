@@ -2,6 +2,7 @@
 defineProps<{
   tools: { id: string; name: string }[]
   currentTool: string
+  isOpen?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -14,7 +15,7 @@ const handleClick = (toolId: string) => {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ open: isOpen }">
     <div class="sidebar-header">
       <h1 class="app-title">工具集合</h1>
     </div>
@@ -41,6 +42,8 @@ const handleClick = (toolId: string) => {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  transition: transform 0.3s ease;
+  z-index: 1000;
 }
 
 .sidebar-header {
@@ -84,5 +87,19 @@ const handleClick = (toolId: string) => {
   background: #3498db;
   color: #fff;
   font-weight: 500;
+}
+
+/* 移动端 */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+  }
+  
+  .sidebar.open {
+    transform: translateX(0);
+  }
 }
 </style>

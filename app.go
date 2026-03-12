@@ -133,22 +133,19 @@ func generateLevel2() Question {
 // Level 3: 20以内无需借位进位
 func generateLevel3() Question {
 	isAdd := rand.Intn(2) == 0
-	
+
 	if isAdd {
-		// 不进位加法: 12+3, 11+5 等
-		a := rand.Intn(8) + 10 // 10-17
-		b := rand.Intn(3) + 1  // 1-3
-		if a+b > 20 {
-			b = 20 - a
-		}
+		// 不进位加法: 11+8, 12+7 等（和不超过20，个位相加<=9）
+		a := rand.Intn(10) + 11 // 11-20
+		b := rand.Intn(9 - (a % 10)) + 1 // 1到(9-个位)的范围
 		return Question{
 			Expression: fmt.Sprintf("%d + %d", a, b),
 			Answer:     a + b,
 		}
 	}
-	// 不借位减法: 18-3, 16-5 等
-	a := rand.Intn(7) + 13 // 13-19
-	b := rand.Intn(3) + 1  // 1-3
+	// 不借位减法: 18-5, 16-3 等（个位够减）
+	a := rand.Intn(10) + 11 // 11-20
+	b := rand.Intn(a%10) + 1 // 1到个位的范围
 	return Question{
 		Expression: fmt.Sprintf("%d - %d", a, b),
 		Answer:     a - b,
@@ -158,27 +155,41 @@ func generateLevel3() Question {
 // Level 4: 20以内需要借位进位
 func generateLevel4() Question {
 	isAdd := rand.Intn(2) == 0
-	
+
 	if isAdd {
-		// 进位加法: 8+7, 9+6 等
+		// 进位加法: 9+8, 8+7, 9+6 等（个位相加>=10）
 		a := rand.Intn(5) + 6  // 6-10
-		b := rand.Intn(5) + 6  // 6-10
-		for a+b <= 10 { // 重新生成确保进位
+		b := rand.Intn(10-a) + (10-a) % 5 + 4 // 确保进位
+		if a+b < 10 {
+			b = 10 - a + rand.Intn(5)
+		}
+		if a > 10 {
+			a = rand.Intn(5) + 6
+		}
+		if b > 10 {
+			b = rand.Intn(5) + 6
+		}
+		for a+b < 10 {
 			a = rand.Intn(5) + 6
 			b = rand.Intn(5) + 6
+		}
+		// 限制在20以内
+		for a+b > 20 {
+			a = rand.Intn(5) + 5
+			b = rand.Intn(15-a) + 1
 		}
 		return Question{
 			Expression: fmt.Sprintf("%d + %d", a, b),
 			Answer:     a + b,
 		}
 	}
-	// 借位减法: 13-8, 15-7 等
-	a := rand.Intn(5) + 11 // 11-15
-	b := rand.Intn(5) + 6 // 6-10
-	for a-b >= 0 && a-b > a-10 { // 重新生成确保借位
-		a = rand.Intn(5) + 11
-		b = rand.Intn(5) + 6
-	}
+	// 借位减法: 12-8, 13-7, 14-9 等（个位不够减）
+	// 随机选一个结果11-19
+	result := rand.Intn(9) + 11
+	// 随机选一个个位比结果个位大的减数
+	unitsDigit := result % 10
+	b := rand.Intn(9-unitsDigit) + unitsDigit + 1 // 至少比result的个位大1
+	a := result + b // 这样 a - b = result，但需要借位
 	return Question{
 		Expression: fmt.Sprintf("%d - %d", a, b),
 		Answer:     a - b,
