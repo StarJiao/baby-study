@@ -154,6 +154,15 @@ const triggerCorrectAnimation = () => {
 declare const window: any
 declare const go: any
 
+// 结束游戏，返回难度选择页面
+const finishGame = () => {
+  isStarted.value = false
+  isFinished.value = false
+  questions.value = []
+  currentIndex.value = 0
+  history.value = []
+}
+
 const startGame = async () => {
   if (window.go) {
     const result = await window.go.main.App.GenerateQuestions(selectedDifficulty.value, questionCount.value)
@@ -380,14 +389,12 @@ const reversedHistory = computed(() => {
     <div v-else-if="!isFinished" class="game-container">
       <div class="game-panel">
         <div class="game-header">
-          <div class="header-left">
-            <span class="difficulty-badge">{{ difficulties[selectedDifficulty - 1].label }}</span>
-            <button class="btn-exit" @click="exitGame" title="退出练习">
-              <X :size="16" />
-              退出
-            </button>
-          </div>
           <span class="progress">{{ progress }}</span>
+          <span class="difficulty-badge">{{ difficulties[selectedDifficulty - 1].label }}</span>
+          <button class="btn-exit" @click="exitGame" title="退出练习">
+            <X :size="16" />
+            退出
+          </button>
         </div>
         
         <!-- 激励动画 -->
@@ -407,7 +414,9 @@ const reversedHistory = computed(() => {
         
         <div class="question-card" :class="{ correct: isCorrect === true, wrong: isCorrect === false }">
           <div class="question-number">第 {{ currentIndex + 1 }} 题</div>
-          <div class="question-expression">{{ currentQuestion?.expression }} = ?</div>
+          <div class="question-expression">
+            {{ currentQuestion?.expression }} <span class="equals">= ?</span>
+          </div>
         </div>
         
         <div class="answer-section">
@@ -497,7 +506,7 @@ const reversedHistory = computed(() => {
         </div>
         
         <div class="accuracy-circle" :class="{ excellent: accuracy >= 90, good: accuracy >= 70 && accuracy < 90, normal: accuracy < 70 }">
-          {{ accuracy }}%
+          {{ accuracy }}
         </div>
         
         <div class="result-stats">
@@ -529,10 +538,16 @@ const reversedHistory = computed(() => {
         💪 加油! 你可以的! 💪
       </div>
       
-      <button class="btn btn-primary btn-restart" @click="startGame">
-        <Play :size="20" />
-        再玩一次
-      </button>
+      <div class="result-buttons">
+        <button class="btn btn-primary btn-restart" @click="startGame">
+          <Play :size="20" />
+          再玩一次
+        </button>
+        <button class="btn btn-secondary btn-finish" @click="finishGame">
+          <Check :size="20" />
+          完成
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -652,6 +667,14 @@ const reversedHistory = computed(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+  width: 100%;
+  position: relative;
+}
+
+.game-header .difficulty-badge {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .header-left {
@@ -720,9 +743,17 @@ const reversedHistory = computed(() => {
 }
 
 .question-expression {
-  font-size: 48px;
-  font-weight: 600;
+  font-size: 56px;
+  font-weight: 700;
   color: #2c3e50;
+  letter-spacing: 4px;
+}
+
+.question-expression .equals {
+  font-size: 36px;
+  font-weight: 500;
+  color: #909399;
+  margin-left: 8px;
 }
 
 .answer-section {
@@ -1000,11 +1031,83 @@ const reversedHistory = computed(() => {
   font-size: 18px;
   border-radius: 30px;
   box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+  flex: 1;
+  justify-content: center;
 }
 
 .btn-restart:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(52, 152, 219, 0.5);
+}
+
+.result-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
+  color: white;
+  border: none;
+  padding: 16px 40px;
+  font-size: 18px;
+  border-radius: 30px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 15px rgba(103, 194, 58, 0.4);
+  transition: all 0.3s ease;
+  flex: 1;
+  justify-content: center;
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(103, 194, 58, 0.5);
+}
+
+/* 分数圆圈 */
+.accuracy-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+  font-weight: 800;
+  margin: 0 auto 24px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e7eb 100%);
+  border: 4px solid #909399;
+  color: #909399;
+  transition: all 0.3s ease;
+}
+
+.accuracy-circle.excellent {
+  background: linear-gradient(135deg, #fff9e6 0%, #ffe066 100%);
+  border-color: #FFD700;
+  color: #d48806;
+  box-shadow: 0 8px 30px rgba(255, 215, 0, 0.4);
+}
+
+.accuracy-circle.good {
+  background: linear-gradient(135deg, #f0f9eb 0%, #b3e19d 100%);
+  border-color: #67c23a;
+  color: #529b2e;
+  box-shadow: 0 8px 30px rgba(103, 194, 58, 0.4);
+}
+
+.accuracy-circle.normal {
+  background: linear-gradient(135deg, #fef0f0 0%, #fab6b6 100%);
+  border-color: #E6A23C;
+  color: #cf9236;
+  box-shadow: 0 8px 30px rgba(230, 162, 60, 0.4);
 }
 
 /* ========== 移动端适配 ========== */
@@ -1051,12 +1154,18 @@ const reversedHistory = computed(() => {
     margin-bottom: 16px;
     flex-wrap: wrap;
     gap: 8px;
+    position: relative;
   }
-  
+
+  .game-header .difficulty-badge {
+    position: static;
+    transform: none;
+  }
+
   .header-left {
     gap: 8px;
   }
-  
+
   .difficulty-badge {
     font-size: 12px;
     padding: 5px 10px;
@@ -1083,7 +1192,12 @@ const reversedHistory = computed(() => {
   }
   
   .question-expression {
-    font-size: 36px;
+    font-size: 40px;
+    letter-spacing: 2px;
+  }
+  
+  .question-expression .equals {
+    font-size: 28px;
   }
   
   .answer-section {
@@ -1153,14 +1267,7 @@ const reversedHistory = computed(() => {
     border-radius: 12px;
     margin-bottom: 20px;
   }
-  
-  .accuracy-circle {
-    width: 100px;
-    height: 100px;
-    font-size: 28px;
-    margin-bottom: 20px;
-  }
-  
+
   .result-stats {
     gap: 20px;
   }
@@ -1182,18 +1289,17 @@ const reversedHistory = computed(() => {
 /* 更小屏幕 */
 @media (max-width: 480px) {
   .question-expression {
-    font-size: 28px;
+    font-size: 32px;
+    letter-spacing: 1px;
+  }
+  
+  .question-expression .equals {
+    font-size: 24px;
   }
   
   .option-btn {
     padding: 8px 12px;
     font-size: 12px;
-  }
-  
-  .accuracy-circle {
-    width: 90px;
-    height: 90px;
-    font-size: 24px;
   }
 }
 </style>

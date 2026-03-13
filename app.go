@@ -37,20 +37,20 @@ func (a *App) Greet(name string) string {
 // GenerateQuestions generates math questions based on difficulty
 func (a *App) GenerateQuestions(difficulty, count int) []Question {
 	rand.Seed(time.Now().UnixNano())
-	
+
 	questions := make([]Question, 0, count)
 	generated := make(map[string]bool)
-	
+
 	for len(questions) < count {
 		q := generateSingleQuestion(difficulty)
 		key := q.Expression
-		
+
 		if !generated[key] {
 			generated[key] = true
 			questions = append(questions, q)
 		}
 	}
-	
+
 	return questions
 }
 
@@ -70,21 +70,23 @@ func generateSingleQuestion(difficulty int) Question {
 }
 
 // Level 1: 10以内加减
+// 加法：两个加数<10，且和<10
+// 减法：被减数<10，减数<10，且差≥0
 func generateLevel1() Question {
-	a := rand.Intn(10)
-	b := rand.Intn(10)
 	isAdd := rand.Intn(2) == 0
-	
+
 	if isAdd {
+		// 加法：两个加数1-9，和<10
+		a := rand.Intn(9) + 1   // 1-9
+		b := rand.Intn(9-a) + 1 // 1 到 (9-a)
 		return Question{
 			Expression: fmt.Sprintf("%d + %d", a, b),
 			Answer:     a + b,
 		}
 	}
-	// 确保结果是负数
-	if a < b {
-		a, b = b, a
-	}
+	// 减法：被减数1-9，减数1-9，差≥0
+	a := rand.Intn(9) + 1   // 1-9，被减数
+	b := rand.Intn(a-1) + 1 // 1 到 a-1，减数
 	return Question{
 		Expression: fmt.Sprintf("%d - %d", a, b),
 		Answer:     a - b,
@@ -92,106 +94,117 @@ func generateLevel1() Question {
 }
 
 // Level 2: 10以内连加连减混合
+// 所有参与运算的数均<10（1-9）
+// 运算过程中每一步中间结果及最终结果均<10，且结果≥0
 func generateLevel2() Question {
-	a := rand.Intn(8) + 1
-	b := rand.Intn(8) + 1
-	c := rand.Intn(8) + 1
-	
-	// 随机选择运算顺序: (a op1 b) op2 c
-	op1 := []string{"+", "-"}[rand.Intn(2)]
-	op2 := []string{"+", "-"}[rand.Intn(2)]
-	
-	var result int
-	if op1 == "+" {
-		result = a + b
-	} else {
-		result = a - b
-	}
-	
-	// 确保最终结果非负
-	if op2 == "+" {
-		result = result + c
-	} else {
-		if result < c {
-			// 调整c使其不会让结果为负
-			c = result
+	// 尝试生成，直到找到符合条件的题目
+	for {
+		// 三个数都在1-9之间
+		a := rand.Intn(9) + 1
+		b := rand.Intn(9) + 1
+		c := rand.Intn(9) + 1
+
+		// 随机选择运算顺序: (a op1 b) op2 c
+		op1 := []string{"+", "-"}[rand.Intn(2)]
+		op2 := []string{"+", "-"}[rand.Intn(2)]
+
+		// 第一步运算结果
+		var step1 int
+		if op1 == "+" {
+			step1 = a + b
+		} else {
+			step1 = a - b
 		}
-		result = result - c
-	}
-	
-	// 重新生成确保结果在10以内
-	for result > 10 || result < 0 {
-		return generateLevel2()
-	}
-	
-	return Question{
-		Expression: fmt.Sprintf("%d %s %d %s %d", a, op1, b, op2, c),
-		Answer:     result,
+
+		// 中间结果必须>=1且<10（排除0和负数）
+		if step1 < 1 || step1 >= 10 {
+			continue
+		}
+
+		// 第二步运算
+		var result int
+		if op2 == "+" {
+			result = step1 + c
+		} else {
+			result = step1 - c
+		}
+
+		// 最终结果必须>=1且<10（排除0和负数）
+		if result < 1 || result >= 10 {
+			continue
+		}
+
+		return Question{
+			Expression: fmt.Sprintf("%d %s %d %s %d", a, op1, b, op2, c),
+			Answer:     result,
+		}
 	}
 }
 
-// Level 3: 20以内无需借位进位
+// Level 3: 20以内无需进位、无需借位
+// 加法：两个数在1～20之间，个位相加<10，不产生进位
+// 减法：两个数在1～20之间，被减数个位 ≥ 减数个位，不需借位
 func generateLevel3() Question {
 	isAdd := rand.Intn(2) == 0
 
 	if isAdd {
-		// 不进位加法: 11+8, 12+7 等（和不超过20，个位相加<=9）
-		a := rand.Intn(10) + 11 // 11-20
-		b := rand.Intn(9 - (a % 10)) + 1 // 1到(9-个位)的范围
-		return Question{
-			Expression: fmt.Sprintf("%d + %d", a, b),
-			Answer:     a + b,
+		// 加法：两个数在1～20之间，个位相加<10，不产生进位，且和<=20
+		for {
+			a := rand.Intn(20) + 1 // 1-20
+			b := rand.Intn(20) + 1 // 1-20
+			// 个位相加<10，不产生进位，且和<=20
+			if (a%10)+(b%10) < 10 && a+b <= 20 && a+b >= 1 {
+				return Question{
+					Expression: fmt.Sprintf("%d + %d", a, b),
+					Answer:     a + b,
+				}
+			}
 		}
 	}
-	// 不借位减法: 18-5, 16-3 等（个位够减）
-	a := rand.Intn(10) + 11 // 11-20
-	b := rand.Intn(a%10) + 1 // 1到个位的范围
-	return Question{
-		Expression: fmt.Sprintf("%d - %d", a, b),
-		Answer:     a - b,
+	// 减法：两个数在1～20之间，被减数个位 >= 减数个位，不需借位
+	for {
+		a := rand.Intn(20) + 1 // 1-20，被减数
+		b := rand.Intn(20) + 1 // 1-20，减数
+		// 确保 a > b（差为正），且被减数个位 >= 减数个位（不需借位）
+		if a > b && a%10 >= b%10 {
+			return Question{
+				Expression: fmt.Sprintf("%d - %d", a, b),
+				Answer:     a - b,
+			}
+		}
 	}
 }
 
-// Level 4: 20以内需要借位进位
+// Level 4: 20以内需要进位、需要借位
+// 加法：两个数在1～20之间，个位相加≥10，必须进位
+// 减法：两个数在1～20之间，被减数个位 < 减数个位，必须借位
 func generateLevel4() Question {
 	isAdd := rand.Intn(2) == 0
 
 	if isAdd {
-		// 进位加法: 9+8, 8+7, 9+6 等（个位相加>=10）
-		a := rand.Intn(5) + 6  // 6-10
-		b := rand.Intn(10-a) + (10-a) % 5 + 4 // 确保进位
-		if a+b < 10 {
-			b = 10 - a + rand.Intn(5)
-		}
-		if a > 10 {
-			a = rand.Intn(5) + 6
-		}
-		if b > 10 {
-			b = rand.Intn(5) + 6
-		}
-		for a+b < 10 {
-			a = rand.Intn(5) + 6
-			b = rand.Intn(5) + 6
-		}
-		// 限制在20以内
-		for a+b > 20 {
-			a = rand.Intn(5) + 5
-			b = rand.Intn(15-a) + 1
-		}
-		return Question{
-			Expression: fmt.Sprintf("%d + %d", a, b),
-			Answer:     a + b,
+		// 加法：两个数在1～20之间，个位相加≥10，必须进位
+		for {
+			a := rand.Intn(20) + 1 // 1-20
+			b := rand.Intn(20) + 1 // 1-20
+			// 个位相加>=10，且和<=20
+			if (a%10)+(b%10) >= 10 && a+b <= 20 {
+				return Question{
+					Expression: fmt.Sprintf("%d + %d", a, b),
+					Answer:     a + b,
+				}
+			}
 		}
 	}
-	// 借位减法: 12-8, 13-7, 14-9 等（个位不够减）
-	// 随机选一个结果11-19
-	result := rand.Intn(9) + 11
-	// 随机选一个个位比结果个位大的减数
-	unitsDigit := result % 10
-	b := rand.Intn(9-unitsDigit) + unitsDigit + 1 // 至少比result的个位大1
-	a := result + b // 这样 a - b = result，但需要借位
-	return Question{
-		Expression: fmt.Sprintf("%d - %d", a, b),
-		Answer:     a - b,
+	// 减法：两个数在1～20之间，被减数个位 < 减数个位，必须借位
+	for {
+		a := rand.Intn(20) + 1 // 1-20，被减数
+		b := rand.Intn(20) + 1 // 1-20，减数
+		// 确保 a > b，且被减数个位 < 减数个位（需要借位）
+		if a > b && a%10 < b%10 {
+			return Question{
+				Expression: fmt.Sprintf("%d - %d", a, b),
+				Answer:     a - b,
+			}
+		}
 	}
 }
