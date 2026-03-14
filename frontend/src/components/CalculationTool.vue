@@ -168,8 +168,8 @@ const startGame = async () => {
     const result = await window.go.main.App.GenerateQuestions(selectedDifficulty.value, questionCount.value)
     questions.value = result.map((q: any, index: number) => ({
       id: index + 1,
-      expression: q.Expression,
-      answer: q.Answer
+      expression: q.expression,
+      answer: q.answer
     }))
   } else {
     // 开发环境模拟数据
