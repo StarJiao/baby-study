@@ -151,9 +151,6 @@ const triggerCorrectAnimation = () => {
   speak(randomPraise)
 }
 
-declare const window: any
-declare const go: any
-
 // 结束游戏，返回难度选择页面
 const finishGame = () => {
   isStarted.value = false
@@ -163,18 +160,8 @@ const finishGame = () => {
   history.value = []
 }
 
-const startGame = async () => {
-  if (window.go) {
-    const result = await window.go.main.App.GenerateQuestions(selectedDifficulty.value, questionCount.value)
-    questions.value = result.map((q: any, index: number) => ({
-      id: index + 1,
-      expression: q.expression,
-      answer: q.answer
-    }))
-  } else {
-    // 开发环境模拟数据
-    questions.value = generateMockQuestions(selectedDifficulty.value, questionCount.value)
-  }
+const startGame = () => {
+  questions.value = generateQuestions(selectedDifficulty.value, questionCount.value)
   currentIndex.value = 0
   correctCount.value = 0
   isStarted.value = true
@@ -182,25 +169,111 @@ const startGame = async () => {
   userAnswer.value = ''
   isCorrect.value = null
   history.value = []
-  
+
   // 自动聚焦到输入框
   setTimeout(() => {
     answerInput.value?.focus()
   }, 100)
 }
 
-const generateMockQuestions = (difficulty: number, count: number): Question[] => {
+// 题目生成逻辑（从 Go 后端移植）
+const generateQuestions = (difficulty: number, count: number): Question[] => {
+  const generated = new Set<string>()
   const result: Question[] = []
-  const maxNum = difficulty === 1 ? 10 : difficulty === 2 ? 10 : 20
-  for (let i = 0; i < count; i++) {
-    const a = Math.floor(Math.random() * maxNum)
-    const b = Math.floor(Math.random() * (maxNum - 1)) + 1
-    const isAdd = Math.random() > 0.5
-    const expr = isAdd ? `${a} + ${b}` : `${Math.max(a, b)} - ${Math.min(a, b)}`
-    const ans = isAdd ? a + b : Math.abs(a - b)
-    result.push({ id: i + 1, expression: expr, answer: ans })
+
+  while (result.length < count) {
+    const q = generateSingleQuestion(difficulty)
+    if (!generated.has(q.expression)) {
+      generated.add(q.expression)
+      result.push({ id: result.length + 1, expression: q.expression, answer: q.answer })
+    }
   }
+
   return result
+}
+
+const generateSingleQuestion = (difficulty: number): { expression: string, answer: number } => {
+  switch (difficulty) {
+    case 1: return generateLevel1()
+    case 2: return generateLevel2()
+    case 3: return generateLevel3()
+    case 4: return generateLevel4()
+    default: return generateLevel1()
+  }
+}
+
+// Level 1: 10以内加减
+const generateLevel1 = (): { expression: string, answer: number } => {
+  const isAdd = Math.random() < 0.5
+  if (isAdd) {
+    const a = Math.floor(Math.random() * 9) + 1
+    const b = Math.floor(Math.random() * (9 - a)) + 1
+    return { expression: `${a} + ${b}`, answer: a + b }
+  }
+  const a = Math.floor(Math.random() * 9) + 1
+  const b = Math.floor(Math.random() * (a - 1)) + 1
+  return { expression: `${a} - ${b}`, answer: a - b }
+}
+
+// Level 2: 10以内连加连减混合
+const generateLevel2 = (): { expression: string, answer: number } => {
+  while (true) {
+    const a = Math.floor(Math.random() * 9) + 1
+    const b = Math.floor(Math.random() * 9) + 1
+    const c = Math.floor(Math.random() * 9) + 1
+    const op1 = Math.random() < 0.5 ? '+' : '-'
+    const op2 = Math.random() < 0.5 ? '+' : '-'
+
+    const step1 = op1 === '+' ? a + b : a - b
+    if (step1 < 1 || step1 >= 10) continue
+
+    const result = op2 === '+' ? step1 + c : step1 - c
+    if (result < 1 || result >= 10) continue
+
+    return { expression: `${a} ${op1} ${b} ${op2} ${c}`, answer: result }
+  }
+}
+
+// Level 3: 20以内无需进位、无需借位
+const generateLevel3 = (): { expression: string, answer: number } => {
+  const isAdd = Math.random() < 0.5
+  if (isAdd) {
+    while (true) {
+      const a = Math.floor(Math.random() * 20) + 1
+      const b = Math.floor(Math.random() * 20) + 1
+      if ((a >= 11 || b >= 11) && (a % 10) + (b % 10) < 10 && a + b <= 20 && a + b >= 1) {
+        return { expression: `${a} + ${b}`, answer: a + b }
+      }
+    }
+  }
+  while (true) {
+    const a = Math.floor(Math.random() * 20) + 1
+    const b = Math.floor(Math.random() * 20) + 1
+    if ((a >= 11 || b >= 11) && a > b && a % 10 >= b % 10) {
+      return { expression: `${a} - ${b}`, answer: a - b }
+    }
+  }
+}
+
+// Level 4: 20以内需要进位、需要借位
+const generateLevel4 = (): { expression: string, answer: number } => {
+  const isAdd = Math.random() < 0.5
+  if (isAdd) {
+    while (true) {
+      const a = Math.floor(Math.random() * 20) + 1
+      const b = Math.floor(Math.random() * 20) + 1
+      if ((a >= 11 || b >= 11) && (a % 10) + (b % 10) >= 10 && a + b <= 20) {
+        return { expression: `${a} + ${b}`, answer: a + b }
+      }
+    }
+  }
+  while (true) {
+    const a = Math.floor(Math.random() * 20) + 1
+    const b = Math.floor(Math.random() * 20) + 1
+    if ((a >= 11 || b >= 11) && a > b && a % 10 < b % 10) {
+      return { expression: `${a} - ${b}`, answer: a - b }
+    }
+  }
 }
 
 const submitAnswer = async () => {

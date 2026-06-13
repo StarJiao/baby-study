@@ -1,11 +1,10 @@
-# 工具集合 (Study App)
+# 计算练习 (Math Practice)
 
-一款为孩子成长各阶段提供帮助的工具集合应用，基于 Wails + Vue 3 + TypeScript 开发。
+一款为儿童设计的数学计算练习工具，基于 Vue 3 + TypeScript + Vite 开发。
 
 ## 技术栈
 
 - **前端框架**: Vue 3 + TypeScript
-- **桌面框架**: Wails (Go + WebView)
 - **构建工具**: Vite
 - **UI 组件**: 自定义组件 + Lucide 图标
 
@@ -13,42 +12,39 @@
 
 ```
 study/
-├── main.go                    # Go 应用入口
-├── app.go                     # Go 后端逻辑（题目生成）
-├── wails.json                 # Wails 配置文件
-├── go.mod / go.sum           # Go 依赖
-├── frontend/
-│   ├── src/
-│   │   ├── main.ts           # Vue 入口
-│   │   ├── App.vue           # 根组件（布局）
-│   │   ├── style.css         # 全局样式
-│   │   └── components/
-│   │       ├── ToolSidebar.vue       # 左侧工具导航栏
-│   │       └── CalculationTool.vue  # 计算练习工具
-│   ├── dist/                 # 构建输出
-│   ├── index.html
-│   ├── vite.config.ts
-│   └── package.json
-└── build/                    # 构建产物
+├── src/
+│   ├── main.ts           # Vue 入口
+│   ├── App.vue           # 根组件（布局）
+│   ├── style.css         # 全局样式
+│   └── components/
+│       ├── ToolSidebar.vue       # 左侧工具导航栏
+│       └── CalculationTool.vue  # 计算练习工具
+├── index.html
+├── vite.config.ts
+├── package.json
+└── README.md
 ```
 
 ## 功能概览
 
-### 1. 计算练习
+### 计算练习
 
 **难度级别**:
-- 10以内加减：1-9 的简单加减法
-- 10以内连加连减：3个数混合运算（如 3+4-2）
-- 20以内无需借位进位：不需要进位或借位的20以内运算
-- 20以内需要借位进位：需要进位或借位的20以内运算
+- 10以内加减：1-9 的简单加减法，和<10，差>=1
+- 10以内连加连减：3个数混合运算（如 3 + 4 - 2），中间结果和最终结果均在 1-9
+- 20以内无需借位进位：至少一个数>=11，不需要进位或借位的20以内运算
+- 20以内需要借位进位：至少一个数>=11，需要进位或借位的20以内运算
 
 **功能特性**:
 - 题目按局生成，每局数量可选（5/10/15/20/30/50）
 - 实时统计正确率
 - 答题历史记录（右侧面板）
-- 点击历史可回溯到指定题目
-- 正确/错误音效反馈
+- 点击历史可回溯到指定题目修改答案
+- 正确/错误音效反馈（Web Audio API）
+- 语音激励（Web Speech API）
+- 正确答题动画（星星、竖大拇指、爱心）
 - 自动聚焦输入框
+- 移动端适配
 
 ## 实现思路
 
@@ -70,24 +66,19 @@ study/
    - 桌面端：左侧固定导航
    - 移动端：汉堡菜单 + 侧滑抽屉
 
-### 后端架构
+### 题目生成逻辑
 
-Go 后端负责题目生成 (`app.go`)：
+所有题目在前端生成，4 级难度算法：
 
 ```
-GenerateQuestions(difficulty, count) → []Question
+generateQuestions(difficulty, count) → Question[]
   ├── generateLevel1()  // 10以内加减
   ├── generateLevel2()  // 10以内连加连减
   ├── generateLevel3()  // 20以内无需借位进位
   └── generateLevel4()  // 20以内需要借位进位
 ```
 
-**题目生成逻辑**:
-
-- Level 1: 随机生成 0-9 的两个数，确保结果非负
-- Level 2: 三个数随机加减，确保结果在 0-10 之间
-- Level 3: 20以内，个位相加 <= 9（不进位）或个位够减（不借位）
-- Level 4: 20以内，个位相加 >= 10（进位）或个位不够减（借位）
+**去重机制**：使用 `Set` 确保同一局内不重复出现相同题目。
 
 ### 音效实现
 
@@ -99,16 +90,17 @@ GenerateQuestions(difficulty, count) → []Question
 ## 开发命令
 
 ```bash
+# 安装依赖
+npm install
+
 # 开发模式
-wails dev
+npm run dev
 
 # 生产构建
-wails build
-
-# 前端单独开发
-cd frontend
-npm run dev
 npm run build
+
+# 预览构建产物
+npm run preview
 ```
 
 ## 添加新工具
@@ -138,5 +130,5 @@ const tools = [
 ## 注意事项
 
 1. **白屏问题**: 生产构建需设置 `vite.config.ts` 中 `base: './'`
-2. **macOS 打包**: 使用 `wails build` 生成的 macOS 应用包含私有 API，仅限测试使用
-3. **音频兼容**: 音效依赖 Web Audio API，部分移动端浏览器可能不支持
+2. **音频兼容**: 音效依赖 Web Audio API，部分移动端浏览器可能不支持
+3. **语音兼容**: 语音激励依赖 Web Speech API，部分浏览器可能不支持
