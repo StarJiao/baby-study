@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
-import { Play, RotateCcw, X, Check, XCircle, Star, ThumbsUp, Heart, Music, PartyPopper } from 'lucide-vue-next'
+import { Play, X, Check, XCircle, Star, ThumbsUp, Heart, PartyPopper, Home, ChevronRight } from 'lucide-vue-next'
 
 interface Question {
   id: number
@@ -13,6 +13,10 @@ interface QuestionHistory {
   userAnswer: number | null
   isCorrect: boolean
 }
+
+const emit = defineEmits<{
+  'back-to-lobby': []
+}>()
 
 const difficulties = [
   { value: 1, label: '10以内加减' },
@@ -36,43 +40,69 @@ const isCorrect = ref<boolean | null>(null)
 const history = ref<QuestionHistory[]>([])
 const isReviewing = ref(false)
 const reviewIndex = ref(-1)
+const showHistorySheet = ref(false)
 
 // 动画状态
 const showStar = ref(false)
 const showThumbUp = ref(false)
 const showHeart = ref(false)
 
-// 检测是否为移动端
-const isMobile = ref(window.innerWidth <= 768)
-if (typeof window !== 'undefined') {
-  window.addEventListener('resize', () => {
-    isMobile.value = window.innerWidth <= 768
-  })
-}
-
 const currentQuestion = computed(() => questions.value[currentIndex.value])
 const progress = computed(() => `${currentIndex.value + 1}/${questions.value.length}`)
 
-// 语音激励
-const praiseMessages = [
-  '太棒了！', '你真厉害！', '非常好！', '超级棒！', '哇，太厉害了！',
-  '好样的！', '真聪明！', '完美！', '厉害极了！', '真棒！'
+// ===================== 音频播放 =====================
+
+const praiseAudios = [
+  '/audio/praise_太棒了.mp3', '/audio/praise_你真厉害.mp3', '/audio/praise_非常好.mp3',
+  '/audio/praise_超级棒.mp3', '/audio/praise_哇太厉害了.mp3', '/audio/praise_好样的.mp3',
+  '/audio/praise_真聪明.mp3', '/audio/praise_完美.mp3', '/audio/praise_厉害极了.mp3',
+  '/audio/praise_真棒.mp3',
 ]
 
-const tryAgainMessages = [
-  '再想想哦~', '没关系，再试一次！', '加油，你可以的！', '仔细算一算~'
+const encourageAudios = [
+  '/audio/encourage_再想想哦.mp3', '/audio/encourage_没关系，再试一次.mp3',
+  '/audio/encourage_加油，你可以的.mp3', '/audio/encourage_仔细听听.mp3',
 ]
 
-const speak = (text: string) => {
-  try {
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 0.9
-    utterance.pitch = 1.2
-    utterance.lang = 'zh-CN'
-    speechSynthesis.speak(utterance)
-  } catch (e) {
-    console.log('Speech not supported')
+const resultAudios: Record<string, string> = {
+  excellent: '/audio/result_太棒了，你超级厉害.mp3',
+  good: '/audio/result_做得不错，继续加油.mp3',
+  keepGoing: '/audio/result_没关系，再接再厉，你可以的.mp3',
+}
+
+let currentAudio: HTMLAudioElement | null = null
+
+const playAudio = (src: string): Promise<void> => {
+  return new Promise((resolve) => {
+    stopAudio()
+    const audio = new Audio(src)
+    currentAudio = audio
+    audio.onended = () => {
+      if (currentAudio === audio) currentAudio = null
+      resolve()
+    }
+    audio.onerror = () => {
+      if (currentAudio === audio) currentAudio = null
+      resolve()
+    }
+    audio.play().catch(() => resolve())
+  })
+}
+
+const stopAudio = () => {
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio.currentTime = 0
+    currentAudio = null
   }
+}
+
+const randomPraiseAudio = () => {
+  return praiseAudios[Math.floor(Math.random() * praiseAudios.length)]
+}
+
+const randomEncourageAudio = () => {
+  return encourageAudios[Math.floor(Math.random() * encourageAudios.length)]
 }
 
 // 播放正确音效 - 可爱的小星星音效
@@ -147,8 +177,8 @@ const triggerCorrectAnimation = () => {
   }
   
   // 随机语音激励
-  const randomPraise = praiseMessages[Math.floor(Math.random() * praiseMessages.length)]
-  speak(randomPraise)
+  const randomPraise = randomPraiseAudio()
+  playAudio(randomPraise)
 }
 
 // 结束游戏，返回难度选择页面
@@ -324,8 +354,8 @@ const submitAnswer = async () => {
     isCorrect.value = false
     playWrongSound()
     // 柔和的鼓励
-    const randomMsg = tryAgainMessages[Math.floor(Math.random() * tryAgainMessages.length)]
-    speak(randomMsg)
+    const randomMsg = randomEncourageAudio()
+    playAudio(randomMsg)
   }
   
   setTimeout(() => {
@@ -400,27 +430,28 @@ watch(isFinished, (finished) => {
   if (finished) {
     setTimeout(() => {
       if (accuracy.value >= 90) {
-        speak('太棒了！你超级厉害！')
+        playAudio(resultAudios.excellent)
       } else if (accuracy.value >= 70) {
-        speak('做得不错！继续加油！')
+        playAudio(resultAudios.good)
       } else {
-        speak('没关系，再接再厉！你可以的！')
+        playAudio(resultAudios.keepGoing)
       }
     }, 500)
   }
 })
 
-// 移动端倒序显示历史记录
-const reversedHistory = computed(() => {
-  return [...history.value].reverse()
-})
 </script>
 
 <template>
   <div class="calculation-tool">
     <!-- 开始游戏前 -->
     <div v-if="!isStarted" class="setup-panel">
-      <h2 class="panel-title">计算练习</h2>
+      <div class="setup-header">
+        <h2 class="panel-title">计算练习</h2>
+        <button class="btn-home" @click="emit('back-to-lobby')">
+          <Home :size="16" /> 返回大厅
+        </button>
+      </div>
       
       <div class="form-group">
         <label class="label">选择难度</label>
@@ -460,96 +491,51 @@ const reversedHistory = computed(() => {
 
     <!-- 答题中 -->
     <div v-else-if="!isFinished" class="game-container">
-      <div class="game-panel">
-        <div class="game-header">
-          <span class="progress">{{ progress }}</span>
-          <span class="difficulty-badge">{{ difficulties[selectedDifficulty - 1].label }}</span>
-          <button class="btn-exit" @click="exitGame" title="退出练习">
-            <X :size="16" />
-            退出
-          </button>
+      <div class="game-header">
+        <span class="progress">{{ progress }}</span>
+        <span class="badge">{{ difficulties[selectedDifficulty - 1].label }}</span>
+        <button class="btn-exit" @click="exitGame">
+          <X :size="16" /> 退出
+        </button>
+      </div>
+      
+      <!-- 激励动画 -->
+      <div class="incentive-area">
+        <div v-if="showStar" class="anim-pop">
+          <Star :size="60" fill="#FFD700" color="#FFD700" />
         </div>
-        
-        <!-- 激励动画 -->
-        <div class="激励机制">
-          <div v-if="showStar" class="anim-star">
-            <Star :size="60" fill="#FFD700" color="#FFD700" />
-            <Star :size="40" fill="#FFD700" color="#FFD700" class="star2" />
-            <Star :size="30" fill="#FFD700" color="#FFD700" class="star3" />
-          </div>
-          <div v-if="showThumbUp" class="anim-thumbup">
-            <ThumbsUp :size="60" color="#FF6B6B" />
-          </div>
-          <div v-if="showHeart" class="anim-heart">
-            <Heart :size="60" fill="#FF6B6B" color="#FF6B6B" />
-          </div>
+        <div v-if="showThumbUp" class="anim-pop">
+          <ThumbsUp :size="60" color="#FF6B6B" />
         </div>
-        
-        <div class="question-card" :class="{ correct: isCorrect === true, wrong: isCorrect === false }">
-          <div class="question-number">第 {{ currentIndex + 1 }} 题</div>
-          <div class="question-expression">
-            {{ currentQuestion?.expression }} <span class="equals">= ?</span>
-          </div>
-        </div>
-        
-        <div class="answer-section">
-          <input
-            ref="answerInput"
-            v-model="userAnswer"
-            type="number"
-            class="answer-input"
-            placeholder="请输入答案"
-            @keyup.enter="submitAnswer"
-            :disabled="isCorrect !== null"
-          />
-          <button class="btn btn-primary" @click="submitAnswer" :disabled="isCorrect !== null">
-            提交
-          </button>
-        </div>
-        
-        <div class="score-display">
-          正确: {{ correctCount }} / {{ currentIndex }}
+        <div v-if="showHeart" class="anim-pop">
+          <Heart :size="60" fill="#FF6B6B" color="#FF6B6B" />
         </div>
       </div>
       
-      <!-- 右侧历史记录 -->
-      <div class="history-panel">
-        <h3 class="history-title">答题记录</h3>
-        <div class="history-list">
-          <!-- 桌面端：正序 -->
-          <template v-if="!isMobile">
-            <div 
-              v-for="(item, index) in history" 
-              :key="index"
-              class="history-item"
-              :class="{ correct: item.isCorrect, wrong: !item.isCorrect, clickable: isCorrect === null }"
-              @click="goToHistory(index)"
-            >
-              <span class="history-index">{{ index + 1 }}</span>
-              <span class="history-expr">{{ item.question.expression }}</span>
-              <Check v-if="item.isCorrect" :size="16" class="icon-correct" />
-              <XCircle v-else :size="16" class="icon-wrong" />
-            </div>
-          </template>
-          <!-- 移动端：倒序 -->
-          <template v-else>
-            <div 
-              v-for="(item, index) in reversedHistory" 
-              :key="index"
-              class="history-item"
-              :class="{ correct: item.isCorrect, wrong: !item.isCorrect, clickable: isCorrect === null }"
-              @click="goToHistory(history.length - 1 - index)"
-            >
-              <span class="history-index">{{ history.length - index }}</span>
-              <span class="history-expr">{{ item.question.expression }}</span>
-              <Check v-if="item.isCorrect" :size="16" class="icon-correct" />
-              <XCircle v-else :size="16" class="icon-wrong" />
-            </div>
-          </template>
-          <div v-if="history.length === 0" class="history-empty">
-            暂无记录
-          </div>
+      <div class="question-card" :class="{ correct: isCorrect === true, wrong: isCorrect === false }">
+        <div class="question-number">第 {{ currentIndex + 1 }} 题</div>
+        <div class="question-expression">
+          {{ currentQuestion?.expression }} <span class="equals">= ?</span>
         </div>
+      </div>
+      
+      <div class="answer-section">
+        <input
+          ref="answerInput"
+          v-model="userAnswer"
+          type="number"
+          class="answer-input"
+          placeholder="请输入答案"
+          @keyup.enter="submitAnswer"
+          :disabled="isCorrect !== null"
+        />
+        <button class="btn btn-primary btn-submit-answer" @click="submitAnswer" :disabled="isCorrect !== null">
+          提交
+        </button>
+      </div>
+      
+      <div class="score-display">
+        正确：{{ correctCount }} / {{ currentIndex }}
       </div>
     </div>
 
@@ -599,6 +585,11 @@ const reversedHistory = computed(() => {
             <span class="stat-value">{{ questions.length }}</span>
           </div>
         </div>
+
+        <div class="history-entry" @click="showHistorySheet = true">
+          <span>查看答题记录</span>
+          <ChevronRight :size="18" />
+        </div>
       </div>
       
       <div class="result-message" v-if="accuracy >= 90">
@@ -616,26 +607,87 @@ const reversedHistory = computed(() => {
           <Play :size="20" />
           再玩一次
         </button>
-        <button class="btn btn-secondary btn-finish" @click="finishGame">
-          <Check :size="20" />
-          完成
+        <button class="btn btn-secondary btn-finish" @click="finishGame(); emit('back-to-lobby')">
+          <Home :size="20" />
+          返回大厅
         </button>
       </div>
     </div>
+
+    <!-- 答题记录半弹层 -->
+    <Teleport to="body">
+      <div v-if="showHistorySheet" class="sheet-overlay" @click.self="showHistorySheet = false">
+        <div class="sheet-panel">
+          <div class="sheet-header">
+            <h3 class="sheet-title">答题记录</h3>
+            <button class="sheet-close" @click="showHistorySheet = false">
+              <X :size="20" />
+            </button>
+          </div>
+          <div class="sheet-body">
+            <div class="history-list">
+              <div 
+                v-for="(item, index) in history" 
+                :key="index"
+                class="history-item"
+                :class="{ correct: item.isCorrect, wrong: !item.isCorrect }"
+              >
+                <span class="history-index">{{ index + 1 }}</span>
+                <span class="history-expr">{{ item.question.expression }}</span>
+                <span class="history-eq">=</span>
+                <span class="history-answer">{{ item.question.answer }}</span>
+                <Check v-if="item.isCorrect" :size="16" class="icon-correct" />
+                <XCircle v-else :size="16" class="icon-wrong" />
+              </div>
+              <div v-if="history.length === 0" class="history-empty">暂无记录</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .calculation-tool {
-  max-width: 100%;
+  max-width: 700px;
   margin: 0 auto;
 }
 
 .panel-title {
   font-size: 28px;
   color: #2c3e50;
-  margin-bottom: 32px;
   text-align: center;
+}
+
+.setup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+}
+
+.setup-header .panel-title {
+  margin-bottom: 0;
+}
+
+.btn-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  font-size: 14px;
+  background: #f5f7fa;
+  color: #3498db;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-home:hover {
+  background: #e8f4fd;
+  border-color: #3498db;
 }
 
 .form-group {
@@ -725,38 +777,17 @@ const reversedHistory = computed(() => {
 
 /* Game Container */
 .game-container {
-  display: flex;
-  gap: 24px;
-  align-items: flex-start;
-}
-
-.game-panel {
-  flex: 1;
-  max-width: 600px;
+  position: relative;
 }
 
 .game-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  width: 100%;
-  position: relative;
+  margin-bottom: 20px;
 }
 
-.game-header .difficulty-badge {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.difficulty-badge {
+.badge {
   background: #e8f4fd;
   color: #3498db;
   padding: 6px 12px;
@@ -832,7 +863,7 @@ const reversedHistory = computed(() => {
 .answer-section {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .answer-input {
@@ -849,32 +880,99 @@ const reversedHistory = computed(() => {
   border-color: #3498db;
 }
 
+.btn-submit-answer {
+  flex: 0 0 auto;
+  padding: 16px 32px;
+  width: auto;
+}
+
 .score-display {
   text-align: center;
   color: #606266;
   font-size: 14px;
+  margin-top: 16px;
 }
 
-/* History Panel */
-.history-panel {
-  width: 280px;
+/* 结果页 - 查看记录入口 */
+.history-entry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px;
+  margin-top: 20px;
+  font-size: 14px;
+  color: #909399;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.history-entry:hover {
+  color: #3498db;
+}
+
+/* 半弹层 */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.sheet-panel {
+  width: 100%;
+  max-width: 600px;
+  max-height: 70vh;
   background: #fff;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  border-radius: 20px 20px 0 0;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s ease-out;
 }
-
-.history-title {
-  font-size: 16px;
-  color: #2c3e50;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
   border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0;
+}
+.sheet-title {
+  font-size: 18px;
+  color: #2c3e50;
+  margin: 0;
+}
+.sheet-close {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f7fa;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #606266;
+  transition: all 0.2s;
+}
+.sheet-close:hover {
+  background: #e8eaed;
+  color: #f56c6c;
+}
+.sheet-body {
+  padding: 16px 24px;
+  overflow-y: auto;
+  flex: 1;
 }
 
+/* History List (reused in sheet) */
 .history-list {
-  max-height: 400px;
-  overflow-y: auto;
+  max-height: 100%;
 }
 
 .history-item {
@@ -885,14 +983,7 @@ const reversedHistory = computed(() => {
   margin-bottom: 8px;
   background: #f5f7fa;
   transition: all 0.2s;
-}
-
-.history-item.clickable {
-  cursor: pointer;
-}
-
-.history-item.clickable:hover {
-  background: #e8f4fd;
+  gap: 10px;
 }
 
 .history-item.correct {
@@ -913,7 +1004,7 @@ const reversedHistory = computed(() => {
   border-radius: 50%;
   font-size: 12px;
   color: #909399;
-  margin-right: 8px;
+  flex-shrink: 0;
 }
 
 .history-expr {
@@ -922,12 +1013,27 @@ const reversedHistory = computed(() => {
   color: #2c3e50;
 }
 
+.history-eq {
+  color: #909399;
+  font-size: 14px;
+}
+
+.history-answer {
+  font-weight: 600;
+  font-size: 14px;
+  color: #3498db;
+  min-width: 24px;
+  text-align: center;
+}
+
 .icon-correct {
   color: #67c23a;
+  flex-shrink: 0;
 }
 
 .icon-wrong {
   color: #f56c6c;
+  flex-shrink: 0;
 }
 
 .history-empty {
@@ -941,44 +1047,20 @@ const reversedHistory = computed(() => {
   color: #E6A23C;
 }
 
-/* 激励机制 */
-.激励机制 {
-  position: relative;
+/* 激励动画 */
+.incentive-area {
   height: 80px;
-  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-
-.anim-star, .anim-thumbup, .anim-heart {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+.anim-pop {
   animation: popIn 0.5s ease-out;
 }
-
-.anim-star .star2 {
-  position: absolute;
-  left: -30px;
-  top: -20px;
-  animation: float 1s ease-in-out infinite;
-}
-
-.anim-star .star3 {
-  position: absolute;
-  right: -30px;
-  top: -10px;
-  animation: float 1s ease-in-out infinite 0.3s;
-}
-
 @keyframes popIn {
-  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
-  50% { transform: translate(-50%, -50%) scale(1.3); }
-  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 /* 结果页面装饰 */
@@ -1219,27 +1301,13 @@ const reversedHistory = computed(() => {
     gap: 16px;
   }
   
-  .game-panel {
-    width: 100%;
-  }
-  
   .game-header {
     margin-bottom: 16px;
     flex-wrap: wrap;
     gap: 8px;
-    position: relative;
   }
 
-  .game-header .difficulty-badge {
-    position: static;
-    transform: none;
-  }
-
-  .header-left {
-    gap: 8px;
-  }
-
-  .difficulty-badge {
+  .badge {
     font-size: 12px;
     padding: 5px 10px;
   }
@@ -1290,38 +1358,6 @@ const reversedHistory = computed(() => {
   }
   
   .score-display {
-    font-size: 13px;
-  }
-  
-  /* 历史记录面板 */
-  .history-panel {
-    width: 100%;
-    border-radius: 12px;
-    padding: 12px;
-  }
-  
-  .history-title {
-    font-size: 14px;
-    padding-bottom: 10px;
-    margin-bottom: 10px;
-  }
-  
-  .history-list {
-    max-height: 200px;
-  }
-  
-  .history-item {
-    padding: 8px 10px;
-    margin-bottom: 6px;
-  }
-  
-  .history-index {
-    width: 22px;
-    height: 22px;
-    font-size: 11px;
-  }
-  
-  .history-expr {
     font-size: 13px;
   }
   
