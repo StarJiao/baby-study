@@ -445,12 +445,22 @@ const submitSpellAnswer = () => {
     spellTone.value ? ['','ā','á','ǎ','à'][spellTone.value] : ''
   )
 
-  spellHistory.value.push({
-    question: q.word,
-    correctAnswer: q.pinyin,
-    userAnswer: userPinyin || q.initial + q.final,
-    isCorrect: correct,
-  })
+  // 每题只在首次提交时记录一条历史；重试时更新该条记录，不再追加，
+  // 避免结果页出现“错题单独占一行”导致行数多于题目数的问题
+  if (spellHistory.value.length <= spellIndex.value) {
+    spellHistory.value.push({
+      question: q.word,
+      correctAnswer: q.pinyin,
+      userAnswer: userPinyin || q.initial + q.final,
+      isCorrect: correct,
+    })
+  } else {
+    // 重试：保留“首次是否正确”的结果，仅在本次仍答错时更新“你答”
+    const entry = spellHistory.value[spellIndex.value]
+    if (!correct) {
+      entry.userAnswer = userPinyin || q.initial + q.final
+    }
+  }
 
   if (correct) {
     playCorrectSound()

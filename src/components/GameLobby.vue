@@ -13,7 +13,7 @@ const modules: GameModule[] = [
   { id: 'calculation', name: '计算练习', icon: Calculator, desc: '加减法运算练习', enabled: true },
   { id: 'pinyin', name: '拼音学习', icon: Type, desc: '听音辨音 & 拼读闯关', enabled: true },
   { id: 'character', name: '汉字初识', icon: PenLine, desc: '字卡闪卡 & 笔顺动画', enabled: true },
-  { id: 'english', name: '英语学习', icon: 'A', desc: '即将上线 🚧', enabled: false },
+  { id: 'english', name: '英语学习', icon: 'A', desc: '字母认识 & 单词卡片', enabled: true },
 ]
 
 const emit = defineEmits<{
@@ -92,8 +92,10 @@ const handleSelect = (m: GameModule) => {
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 24px;
+  max-width: 600px;
+  margin: 0 auto;
 }
 
 .module-card {
@@ -164,10 +166,17 @@ const handleSelect = (m: GameModule) => {
 
 @media (max-width: 768px) {
   .module-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
   }
   .lobby-title {
     font-size: 26px;
+  }
+}
+
+@media (max-width: 420px) {
+  .module-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

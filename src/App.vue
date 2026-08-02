@@ -4,6 +4,7 @@ import GameLobby from './components/GameLobby.vue'
 import CalculationTool from './components/CalculationTool.vue'
 import PinyinTool from './components/PinyinTool.vue'
 import CharacterTool from './components/CharacterTool.vue'
+import EnglishTool from './components/EnglishTool.vue'
 
 const currentTool = ref('calculation')
 const currentView = ref<'lobby' | 'module'>('lobby')
@@ -25,6 +26,7 @@ const goLobby = () => {
       <CalculationTool v-else-if="currentTool === 'calculation'" @back-to-lobby="goLobby" />
       <PinyinTool v-else-if="currentTool === 'pinyin'" @back-to-lobby="goLobby" />
       <CharacterTool v-else-if="currentTool === 'character'" @back-to-lobby="goLobby" />
+      <EnglishTool v-else-if="currentTool === 'english'" @back-to-lobby="goLobby" />
     </main>
   </div>
 </template>
