@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
-import { Play, X, Check, XCircle, Star, ThumbsUp, Heart, PartyPopper, Home, ChevronRight } from 'lucide-vue-next'
+import { ref, computed, watch } from 'vue'
+import { Play, X, Check, XCircle, Star, ThumbsUp, Heart, Home, ChevronRight } from 'lucide-vue-next'
 
 interface Question {
   id: number
@@ -38,8 +38,6 @@ const isStarted = ref(false)
 const isFinished = ref(false)
 const isCorrect = ref<boolean | null>(null)
 const history = ref<QuestionHistory[]>([])
-const isReviewing = ref(false)
-const reviewIndex = ref(-1)
 const showHistorySheet = ref(false)
 
 // 动画状态
@@ -49,61 +47,6 @@ const showHeart = ref(false)
 
 const currentQuestion = computed(() => questions.value[currentIndex.value])
 const progress = computed(() => `${currentIndex.value + 1}/${questions.value.length}`)
-
-// ===================== 音频播放 =====================
-
-const praiseAudios = [
-  '/audio/praise_太棒了.mp3', '/audio/praise_你真厉害.mp3', '/audio/praise_非常好.mp3',
-  '/audio/praise_超级棒.mp3', '/audio/praise_哇太厉害了.mp3', '/audio/praise_好样的.mp3',
-  '/audio/praise_真聪明.mp3', '/audio/praise_完美.mp3', '/audio/praise_厉害极了.mp3',
-  '/audio/praise_真棒.mp3',
-]
-
-const encourageAudios = [
-  '/audio/encourage_再想想哦.mp3', '/audio/encourage_没关系，再试一次.mp3',
-  '/audio/encourage_加油，你可以的.mp3', '/audio/encourage_仔细听听.mp3',
-]
-
-const resultAudios: Record<string, string> = {
-  excellent: '/audio/result_太棒了，你超级厉害.mp3',
-  good: '/audio/result_做得不错，继续加油.mp3',
-  keepGoing: '/audio/result_没关系，再接再厉，你可以的.mp3',
-}
-
-let currentAudio: HTMLAudioElement | null = null
-
-const playAudio = (src: string): Promise<void> => {
-  return new Promise((resolve) => {
-    stopAudio()
-    const audio = new Audio(src)
-    currentAudio = audio
-    audio.onended = () => {
-      if (currentAudio === audio) currentAudio = null
-      resolve()
-    }
-    audio.onerror = () => {
-      if (currentAudio === audio) currentAudio = null
-      resolve()
-    }
-    audio.play().catch(() => resolve())
-  })
-}
-
-const stopAudio = () => {
-  if (currentAudio) {
-    currentAudio.pause()
-    currentAudio.currentTime = 0
-    currentAudio = null
-  }
-}
-
-const randomPraiseAudio = () => {
-  return praiseAudios[Math.floor(Math.random() * praiseAudios.length)]
-}
-
-const randomEncourageAudio = () => {
-  return encourageAudios[Math.floor(Math.random() * encourageAudios.length)]
-}
 
 // 播放正确音效 - 可爱的小星星音效
 const playCorrectSound = () => {
@@ -175,10 +118,6 @@ const triggerCorrectAnimation = () => {
     showHeart.value = true
     setTimeout(() => showHeart.value = false, 1000)
   }
-  
-  // 随机语音激励
-  const randomPraise = randomPraiseAudio()
-  playAudio(randomPraise)
 }
 
 // 结束游戏，返回难度选择页面
@@ -188,6 +127,7 @@ const finishGame = () => {
   questions.value = []
   currentIndex.value = 0
   history.value = []
+  showHistorySheet.value = false
 }
 
 const startGame = () => {
@@ -199,6 +139,7 @@ const startGame = () => {
   userAnswer.value = ''
   isCorrect.value = null
   history.value = []
+  showHistorySheet.value = false
 
   // 自动聚焦到输入框
   setTimeout(() => {
@@ -306,41 +247,27 @@ const generateLevel4 = (): { expression: string, answer: number } => {
   }
 }
 
-const submitAnswer = async () => {
-  if (userAnswer.value === '' || userAnswer.value === null || userAnswer.value === undefined) return
+const submitAnswer = () => {
+  if (
+    isCorrect.value !== null ||
+    userAnswer.value === '' ||
+    userAnswer.value === null ||
+    userAnswer.value === undefined
+  ) return
   
   const answer = Number(userAnswer.value)
   const correct = answer === currentQuestion.value.answer
-  
-  // 如果在回溯状态，更新原有记录；否则新增
-  if (isReviewing.value) {
-    const oldRecord = history.value[reviewIndex.value]
-    const wasCorrect = oldRecord ? oldRecord.isCorrect : false
-    
-    // 更新记录
-    history.value[reviewIndex.value] = {
-      question: { ...currentQuestion.value },
-      userAnswer: answer,
-      isCorrect: correct
-    }
-    
-    // 调整正确计数：如果之前是对的现在错了则减一，如果之前是错的现在对了则加一
-    if (wasCorrect && !correct) {
-      correctCount.value--
-    } else if (!wasCorrect && correct) {
-      correctCount.value++
-    }
-    
-    isReviewing.value = false
-    reviewIndex.value = -1
-  } else {
-    // 记录历史
+
+  // 每道题只记录第一次作答，重试答对不改变正确率或历史记录。
+  const isFirstAttempt = !history.value.some(
+    item => item.question.id === currentQuestion.value.id
+  )
+  if (isFirstAttempt) {
     history.value.push({
       question: { ...currentQuestion.value },
       userAnswer: answer,
       isCorrect: correct
     })
-    // 新增时正确则计数加一
     if (correct) {
       correctCount.value++
     }
@@ -350,41 +277,34 @@ const submitAnswer = async () => {
     isCorrect.value = true
     playCorrectSound()
     triggerCorrectAnimation()
+
+    // 正确：延迟后进入下一题
+    setTimeout(() => {
+      isCorrect.value = null
+
+      if (currentIndex.value < questions.value.length - 1) {
+        currentIndex.value++
+        userAnswer.value = ''
+        setTimeout(() => {
+          answerInput.value?.focus()
+        }, 100)
+      } else {
+        isFinished.value = true
+      }
+    }, 1000)
   } else {
     isCorrect.value = false
     playWrongSound()
-    // 柔和的鼓励
-    const randomMsg = randomEncourageAudio()
-    playAudio(randomMsg)
+
+    // 错误：短暂显示错误后重置，让用户重新作答
+    setTimeout(() => {
+      isCorrect.value = null
+      userAnswer.value = ''
+      setTimeout(() => {
+        answerInput.value?.focus()
+      }, 100)
+    }, 1200)
   }
-  
-  setTimeout(() => {
-    isCorrect.value = null
-    
-    // 如果是回溯状态订正，答题后停留在当前题目
-    if (isReviewing.value) {
-      isReviewing.value = false
-      reviewIndex.value = -1
-      userAnswer.value = ''
-      // 保持在当前题目
-      setTimeout(() => {
-        answerInput.value?.focus()
-      }, 100)
-      return
-    }
-    
-    // 正常答题流程
-    if (currentIndex.value < questions.value.length - 1) {
-      currentIndex.value++
-      userAnswer.value = ''
-      // 自动聚焦到输入框
-      setTimeout(() => {
-        answerInput.value?.focus()
-      }, 100)
-    } else {
-      isFinished.value = true
-    }
-  }, 1000)
 }
 
 // 退出当前练习
@@ -397,6 +317,7 @@ const exitGame = () => {
   userAnswer.value = ''
   isCorrect.value = null
   history.value = []
+  showHistorySheet.value = false
 }
 
 const restartGame = () => {
@@ -408,15 +329,7 @@ const restartGame = () => {
   userAnswer.value = ''
   isCorrect.value = null
   history.value = []
-}
-
-// 回溯到指定历史题目
-const goToHistory = (index: number) => {
-  if (isCorrect.value !== null) return // 等待动画完成
-  isReviewing.value = true
-  reviewIndex.value = index
-  currentIndex.value = index
-  userAnswer.value = ''
+  showHistorySheet.value = false
 }
 
 const accuracy = computed(() => {
@@ -424,19 +337,9 @@ const accuracy = computed(() => {
   return Math.round((correctCount.value / questions.value.length) * 100)
 })
 
-// 监听游戏结束，播放总结语音
-import { watch } from 'vue'
 watch(isFinished, (finished) => {
   if (finished) {
-    setTimeout(() => {
-      if (accuracy.value >= 90) {
-        playAudio(resultAudios.excellent)
-      } else if (accuracy.value >= 70) {
-        playAudio(resultAudios.good)
-      } else {
-        playAudio(resultAudios.keepGoing)
-      }
-    }, 500)
+    showHistorySheet.value = true
   }
 })
 
@@ -535,35 +438,15 @@ watch(isFinished, (finished) => {
       </div>
       
       <div class="score-display">
-        正确：{{ correctCount }} / {{ currentIndex }}
+        正确：{{ correctCount }} / {{ history.length }}
       </div>
     </div>
 
     <!-- 游戏结束 -->
     <div v-else class="result-panel">
-      <!-- 装饰元素 -->
-      <div class="decorations">
-        <span v-for="i in 12" :key="i" class="decoration" :class="'dec-' + i">
-          <Star v-if="i % 3 === 0" :size="20" fill="#FFD700" color="#FFD700" />
-          <Heart v-else-if="i % 3 === 1" :size="18" fill="#FF6B6B" color="#FF6B6B" />
-          <PartyPopper v-else :size="18" color="#FF9F43" />
-        </span>
-      </div>
-      
-      <h2 class="result-title">
-        <span v-if="accuracy >= 90">🎉 太棒了! 🎉</span>
-        <span v-else-if="accuracy >= 70">💪 做得不错! 💪</span>
-        <span v-else>🌟 再接再厉! 🌟</span>
-      </h2>
+      <h2 class="result-title">练习结果</h2>
       
       <div class="result-card" :class="{ 'card-excellent': accuracy >= 90, 'card-good': accuracy >= 70 && accuracy < 90, 'card-normal': accuracy < 70 }">
-        <!-- 吉祥物 -->
-        <div class="mascot">
-          <span v-if="accuracy >= 90" class="mascot-emoji">🦁</span>
-          <span v-else-if="accuracy >= 70" class="mascot-emoji">🐻</span>
-          <span v-else class="mascot-emoji">🐨</span>
-        </div>
-        
         <div class="accuracy-circle" :class="{ excellent: accuracy >= 90, good: accuracy >= 70 && accuracy < 90, normal: accuracy < 70 }">
           {{ accuracy }}
         </div>
@@ -590,16 +473,6 @@ watch(isFinished, (finished) => {
           <span>查看答题记录</span>
           <ChevronRight :size="18" />
         </div>
-      </div>
-      
-      <div class="result-message" v-if="accuracy >= 90">
-        ✨ 你是最棒的! ✨
-      </div>
-      <div class="result-message" v-else-if="accuracy >= 70">
-        🌈 继续加油! 🌈
-      </div>
-      <div class="result-message normal-msg">
-        💪 加油! 你可以的! 💪
       </div>
       
       <div class="result-buttons">
@@ -635,7 +508,12 @@ watch(isFinished, (finished) => {
                 <span class="history-index">{{ index + 1 }}</span>
                 <span class="history-expr">{{ item.question.expression }}</span>
                 <span class="history-eq">=</span>
-                <span class="history-answer">{{ item.question.answer }}</span>
+                <span class="history-answer" :class="{ 'answer-wrong': !item.isCorrect }">
+                  {{ item.userAnswer }}
+                </span>
+                <span v-if="!item.isCorrect" class="history-correct-answer">
+                  正确：{{ item.question.answer }}
+                </span>
                 <Check v-if="item.isCorrect" :size="16" class="icon-correct" />
                 <XCircle v-else :size="16" class="icon-wrong" />
               </div>
@@ -1026,6 +904,16 @@ watch(isFinished, (finished) => {
   text-align: center;
 }
 
+.history-answer.answer-wrong {
+  color: #f56c6c;
+}
+
+.history-correct-answer {
+  color: #67c23a;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .icon-correct {
   color: #67c23a;
   flex-shrink: 0;
@@ -1041,10 +929,6 @@ watch(isFinished, (finished) => {
   color: #909399;
   padding: 20px;
   font-size: 14px;
-}
-
-.result-message.normal-msg {
-  color: #E6A23C;
 }
 
 /* 激励动画 */
@@ -1063,42 +947,8 @@ watch(isFinished, (finished) => {
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* 结果页面装饰 */
 .result-panel {
   position: relative;
-  overflow: hidden;
-}
-
-.decorations {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-}
-
-.decoration {
-  position: absolute;
-  animation: twinkle 2s ease-in-out infinite;
-}
-
-.dec-1 { top: 5%; left: 5%; animation-delay: 0s; }
-.dec-2 { top: 10%; right: 8%; animation-delay: 0.2s; }
-.dec-3 { top: 20%; left: 3%; animation-delay: 0.4s; }
-.dec-4 { top: 30%; right: 5%; animation-delay: 0.6s; }
-.dec-5 { top: 40%; left: 8%; animation-delay: 0.8s; }
-.dec-6 { top: 50%; right: 3%; animation-delay: 1s; }
-.dec-7 { top: 60%; left: 5%; animation-delay: 1.2s; }
-.dec-8 { top: 70%; right: 8%; animation-delay: 1.4s; }
-.dec-9 { top: 80%; left: 3%; animation-delay: 1.6s; }
-.dec-10 { top: 90%; right: 5%; animation-delay: 1.8s; }
-.dec-11 { top: 15%; left: 10%; animation-delay: 0.3s; }
-.dec-12 { top: 85%; right: 10%; animation-delay: 0.7s; }
-
-@keyframes twinkle {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.2); }
 }
 
 .result-title {
@@ -1106,13 +956,6 @@ watch(isFinished, (finished) => {
   color: #2c3e50;
   margin-bottom: 24px;
   text-align: center;
-  animation: bounceIn 0.6s ease-out;
-}
-
-@keyframes bounceIn {
-  0% { transform: scale(0.5); opacity: 0; }
-  60% { transform: scale(1.1); }
-  100% { transform: scale(1); opacity: 1; }
 }
 
 .result-card {
@@ -1137,22 +980,6 @@ watch(isFinished, (finished) => {
 .result-card.card-normal {
   background: linear-gradient(135deg, #fef0f0 0%, #fff 100%);
   border: 3px solid #E6A23C;
-}
-
-.mascot {
-  text-align: center;
-  margin-bottom: 16px;
-}
-
-.mascot-emoji {
-  font-size: 60px;
-  display: inline-block;
-  animation: bounce 1s ease-in-out infinite;
-}
-
-@keyframes bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-15px); }
 }
 
 .result-stats {
@@ -1389,10 +1216,6 @@ watch(isFinished, (finished) => {
     font-size: 20px;
   }
   
-  .result-message {
-    font-size: 16px;
-    margin-bottom: 20px;
-  }
 }
 
 /* 更小屏幕 */

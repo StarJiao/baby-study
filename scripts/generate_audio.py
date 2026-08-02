@@ -8,6 +8,7 @@ import re
 from typing import Optional
 import edge_tts
 from pypinyin import pinyin, Style
+from pydub import AudioSegment
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), "..")
 AUDIO_DIR = os.path.join(BASE_DIR, "public", "audio")
@@ -15,6 +16,9 @@ DATA_FILE = os.path.join(BASE_DIR, "src", "data", "syllables.ts")
 VOICE = "zh-CN-XiaoxiaoNeural"
 RATE = "-10%"
 PITCH = "+5Hz"
+
+# 音频前后留白（毫秒），防止紧凑变形
+PAD_MS = 300
 
 # 现代汉语 ~500 个最常用汉字（按频率排序，覆盖 ~78% 日常使用）
 COMMON_CHARS = list(
@@ -109,11 +113,18 @@ def split_pinyin(py_tone: str, py_num: str) -> Optional[dict]:
 
 
 async def generate_audio(word: str, path: str):
-    """生成单个音频文件"""
+    """生成单个音频文件（含前后留白）"""
     if os.path.exists(path):
         return
     communicate = edge_tts.Communicate(word, VOICE, rate=RATE, pitch=PITCH)
-    await communicate.save(path)
+    tmp_path = path + ".tmp.mp3"
+    await communicate.save(tmp_path)
+    # 添加前后留白，避免紧凑变形
+    audio = AudioSegment.from_mp3(tmp_path)
+    silence = AudioSegment.silent(duration=PAD_MS)
+    padded = silence + audio + silence
+    padded.export(path, format="mp3", bitrate="128k")
+    os.remove(tmp_path)
 
 
 async def main():

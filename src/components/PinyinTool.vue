@@ -1,7 +1,8 @@
 <script lang="ts" setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { Home, Ear, Pencil, Play, Volume2, Star, ThumbsUp, Heart, Check, X, XCircle, PartyPopper } from 'lucide-vue-next'
 import { type Syllable, syllables } from '../data/syllables'
+import { charWordMap } from '../data/wordMap'
 
 const emit = defineEmits<{
   'back-to-lobby': []
@@ -48,7 +49,8 @@ interface GameHistory {
 const allInitials = [...new Set(syllables.map(s => s.initial))].filter(Boolean)
 const allFinals = [...new Set(syllables.map(s => s.final))].filter(Boolean)
 const tones = [1, 2, 3, 4]
-const toneMarks: Record<number, string> = { 1: 'ˉ', 2: 'ˊ', 3: 'ˇ', 4: 'ˋ' }
+const toneMarks: Record<number, string> = { 0: '˙', 1: 'ˉ', 2: 'ˊ', 3: 'ˇ', 4: 'ˋ' }
+const toneLabels: Record<number, string> = { 0: '轻声', 1: '第一声', 2: '第二声', 3: '第三声', 4: '第四声' }
 
 // ===================== 音频播放 =====================
 
@@ -63,14 +65,14 @@ const praiseAudios = [
 ]
 
 const encourageAudios = [
-  '/audio/encourage_再想想哦.mp3', '/audio/encourage_没关系，再试一次.mp3',
-  '/audio/encourage_加油，你可以的.mp3', '/audio/encourage_仔细听听.mp3',
+  '/audio/encourage_再想想哦.mp3', '/audio/encourage_再试试.mp3',
+  '/audio/encourage_仔细听听.mp3',
 ]
 
 const resultAudios: Record<string, string> = {
   excellent: '/audio/result_太棒了，你超级厉害.mp3',
   good: '/audio/result_做得不错，继续加油.mp3',
-  keepGoing: '/audio/result_没关系，再接再厉，你可以的.mp3',
+  keepGoing: '/audio/result_再接再厉哦.mp3',
 }
 
 let currentAudio: HTMLAudioElement | null = null
@@ -105,6 +107,22 @@ const speakWord = (word: string) => {
   playAudio(getWordAudio(word))
 }
 
+const getWordGroupAudio = (word: string) => `/audio/word/${word}.mp3`
+
+const hasGroupWord = (word: string): boolean => {
+  return !!charWordMap[word]
+}
+
+const speakGroupWord = (word: string) => {
+  const groupWord = charWordMap[word]
+  if (groupWord) {
+    playAudio(getWordGroupAudio(word))
+  } else {
+    // 无组词数据时，回退播放该字单字音频，避免按钮点击无反应
+    playAudio(`/audio/word/${word}.mp3`)
+  }
+}
+
 const randomPraiseAudio = () => {
   return praiseAudios[Math.floor(Math.random() * praiseAudios.length)]
 }
@@ -126,6 +144,10 @@ const listenIsCorrect = ref<boolean | null>(null)
 const listenHistory = ref<GameHistory[]>([])
 const listenQuestionCount = ref(10)
 const listenType = ref<'pinyin' | 'initial' | 'final' | 'mixed'>('pinyin')
+const listenSoundCard = ref<HTMLElement | null>(null)
+const listenFirstCorrect = ref<Set<number>>(new Set())
+const listenUserFirstAnswers = ref<Record<number, string>>({})
+const listenFeedbackPending = ref(false)
 
 // 拼读闯关状态
 const spellState = ref<'setup' | 'playing' | 'result'>('setup')
@@ -148,6 +170,9 @@ const identifyIsCorrect = ref<boolean | null>(null)
 const identifyHistory = ref<GameHistory[]>([])
 const identifyQuestionCount = ref(10)
 const identifySoundCard = ref<HTMLElement | null>(null)
+const identifyFirstCorrect = ref<Set<number>>(new Set())
+const identifyUserFirstAnswers = ref<Record<number, string>>({})
+const identifyFeedbackPending = ref(false)
 
 // 激励动画
 const showStar = ref(false)
@@ -160,6 +185,21 @@ const animKey = ref(0)
 const randomPick = <T>(arr: T[], count: number): T[] => {
   const shuffled = [...arr].sort(() => Math.random() - 0.5)
   return shuffled.slice(0, count)
+}
+
+// iPad Safari 会在触摸按钮后保留焦点/悬停状态；反馈结束后显式释放。
+const releaseAnswerFocus = (answerButton: HTMLElement | null) => {
+  answerButton?.blur()
+  const activeElement = document.activeElement
+  if (
+    activeElement instanceof HTMLElement &&
+    (
+      activeElement.classList.contains('listen-option') ||
+      activeElement.classList.contains('identify-option')
+    )
+  ) {
+    activeElement.blur()
+  }
 }
 
 const playCorrectSound = () => {
@@ -263,6 +303,9 @@ const startListenGame = () => {
     listenSelected.value = null
     listenIsCorrect.value = null
     listenHistory.value = []
+    listenFirstCorrect.value = new Set()
+    listenUserFirstAnswers.value = {}
+    listenFeedbackPending.value = false
     listenState.value = 'playing'
     setTimeout(() => speakWord(listenQuestions.value[0].syllable.word), 400)
   } else {
@@ -274,58 +317,84 @@ const startListenGame = () => {
   }
 }
 
-const handleListenSelect = (optionIndex: number) => {
-  if (listenSelected.value !== null) return
+const handleListenSelect = (optionIndex: number, event: MouseEvent) => {
+  if (listenFeedbackPending.value) return
 
   const q = listenQuestions.value[listenIndex.value]
   const option = q.options[optionIndex]
   const correct = option.isCorrect
+  const answerButton = event.currentTarget as HTMLElement | null
 
+  listenFeedbackPending.value = true
   listenSelected.value = optionIndex
   listenIsCorrect.value = correct
 
-  listenHistory.value.push({
-    question: q.syllable.word,
-    correctAnswer: q.syllable.pinyin,
-    userAnswer: option.pinyin,
-    isCorrect: correct,
-  })
+  const idx = listenIndex.value
 
   if (correct) {
+    // 记录首次是否正确
+    if (!(idx in listenUserFirstAnswers.value)) {
+      listenFirstCorrect.value.add(idx)
+      listenUserFirstAnswers.value[idx] = option.pinyin
+    }
+    // 记录最终答对的记录
+    listenHistory.value.push({
+      question: q.syllable.word,
+      correctAnswer: q.syllable.pinyin,
+      userAnswer: option.pinyin,
+      isCorrect: true,
+    })
+
     playCorrectSound()
     triggerCorrectAnimation()
-  } else {
-      playWrongSound()
-      const randomMsg = randomEncourageAudio()
-      playAudio(randomMsg)
-    }
 
     setTimeout(() => {
+      releaseAnswerFocus(answerButton)
       listenSelected.value = null
       listenIsCorrect.value = null
+      listenFeedbackPending.value = false
       if (listenIndex.value < listenQuestions.value.length - 1) {
         listenIndex.value++
-        // 自动朗读新题目
         setTimeout(() => speakWord(listenQuestions.value[listenIndex.value].syllable.word), 300)
-    } else {
-      listenState.value = 'result'
+      } else {
+        listenState.value = 'result'
+      }
+    }, 1500)
+  } else {
+    // 记录首次错误答案
+    if (!(idx in listenUserFirstAnswers.value)) {
+      listenUserFirstAnswers.value[idx] = option.pinyin
     }
-  }, 1500)
+
+    playWrongSound()
+    const randomMsg = randomEncourageAudio()
+    playAudio(randomMsg)
+
+    // 错误后重置选中状态，允许重试，并自动重播发音
+    setTimeout(() => {
+      releaseAnswerFocus(answerButton)
+      listenSelected.value = null
+      listenIsCorrect.value = null
+      listenFeedbackPending.value = false
+      speakWord(q.syllable.word)
+    }, 1200)
+  }
 }
 
 const listenCorrectCount = computed(() => {
   if (listenType.value === 'pinyin') {
-    return listenHistory.value.filter(h => h.isCorrect).length
+    return listenFirstCorrect.value.size
   }
-  return identifyHistory.value.filter(h => h.isCorrect).length
+  return identifyFirstCorrect.value.size
 })
 const listenAccuracy = computed(() => {
-  const history = listenType.value === 'pinyin' ? listenHistory.value : identifyHistory.value
-  if (history.length === 0) return 0
-  return Math.round((history.filter(h => h.isCorrect).length / history.length) * 100)
+  const total = listenType.value === 'pinyin' ? listenQuestions.value.length : identifyQuestions.value.length
+  if (total === 0) return 0
+  const correct = listenType.value === 'pinyin' ? listenFirstCorrect.value.size : identifyFirstCorrect.value.size
+  return Math.round((correct / total) * 100)
 })
 const listenModeTotal = computed(() => {
-  return listenType.value === 'pinyin' ? listenHistory.value.length : identifyHistory.value.length
+  return listenType.value === 'pinyin' ? listenQuestions.value.length : identifyQuestions.value.length
 })
 
 // ===================== 拼读闯关 =====================
@@ -346,7 +415,7 @@ const startSpellGame = () => {
     finalOptions: generateSpellOptions(s.final, allFinals.filter(fin =>
       syllables.some(sy => sy.initial === s.initial && sy.final === fin)
     ), 4),
-    toneOptions: [1, 2, 3, 4],
+    toneOptions: [0, 1, 2, 3, 4],
   }))
   spellIndex.value = 0
   spellInitial.value = null
@@ -386,23 +455,30 @@ const submitSpellAnswer = () => {
   if (correct) {
     playCorrectSound()
     triggerCorrectAnimation()
+    // 正确：延迟后进入下一题
+    setTimeout(() => {
+      spellInitial.value = null
+      spellFinal.value = null
+      spellTone.value = null
+      spellIsCorrect.value = null
+      if (spellIndex.value < spellQuestions.value.length - 1) {
+        spellIndex.value++
+      } else {
+        spellState.value = 'result'
+      }
+    }, 1500)
   } else {
     playWrongSound()
     const randomMsg = randomEncourageAudio()
     playAudio(randomMsg)
+    // 错误：短暂显示错误后重置，让用户重新选择
+    setTimeout(() => {
+      spellInitial.value = null
+      spellFinal.value = null
+      spellTone.value = null
+      spellIsCorrect.value = null
+    }, 1200)
   }
-
-  setTimeout(() => {
-    spellInitial.value = null
-    spellFinal.value = null
-    spellTone.value = null
-    spellIsCorrect.value = null
-    if (spellIndex.value < spellQuestions.value.length - 1) {
-      spellIndex.value++
-    } else {
-      spellState.value = 'result'
-    }
-  }, 1500)
 }
 
 const spellCorrectCount = computed(() => spellHistory.value.filter(h => h.isCorrect).length)
@@ -441,11 +517,16 @@ const startIdentifyGame = () => {
   }
 
   const picks = randomPick(pool, identifyQuestionCount.value)
-  const types = ['initial', 'final', 'mixed'] as const
 
   identifyQuestions.value = picks.map(s => {
     const qType = type === 'mixed'
-      ? types[Math.floor(Math.random() * 3)]
+      ? (() => {
+          // 避开空值：没有声母就不选 initial，没有韵母就不选 final
+          const av: ('initial' | 'final' | 'mixed')[] = ['mixed']
+          if (s.initial !== '') av.push('initial')
+          if (s.final !== '') av.push('final')
+          return av[Math.floor(Math.random() * av.length)]
+        })()
       : type
 
     let correctValue: string
@@ -489,50 +570,76 @@ const startIdentifyGame = () => {
   identifySelected.value = null
   identifyIsCorrect.value = null
   identifyHistory.value = []
+  identifyFirstCorrect.value = new Set()
+  identifyUserFirstAnswers.value = {}
+  identifyFeedbackPending.value = false
   identifyState.value = 'playing'
 
   // 自动播放第一题
   setTimeout(() => speakWord(identifyQuestions.value[0].syllable.word), 400)
 }
 
-const handleIdentifySelect = (optionIndex: number) => {
-  if (identifySelected.value !== null) return
+const handleIdentifySelect = (optionIndex: number, event: MouseEvent) => {
+  if (identifyFeedbackPending.value) return
 
   const q = identifyQuestions.value[identifyIndex.value]
   const option = q.options[optionIndex]
   const correct = option.value === q.correctValue
+  const answerButton = event.currentTarget as HTMLElement | null
 
+  identifyFeedbackPending.value = true
   identifySelected.value = optionIndex
   identifyIsCorrect.value = correct
 
-  identifyHistory.value.push({
-    question: q.syllable.word,
-    correctAnswer: q.correctValue,
-    userAnswer: option.value,
-    isCorrect: correct,
-  })
+  const idx = identifyIndex.value
 
   if (correct) {
+    // 记录首次是否正确
+    if (!(idx in identifyUserFirstAnswers.value)) {
+      identifyFirstCorrect.value.add(idx)
+      identifyUserFirstAnswers.value[idx] = option.value
+    }
+    identifyHistory.value.push({
+      question: q.syllable.word,
+      correctAnswer: q.correctValue,
+      userAnswer: option.value,
+      isCorrect: true,
+    })
+
     playCorrectSound()
     triggerCorrectAnimation()
+
+    setTimeout(() => {
+      releaseAnswerFocus(answerButton)
+      identifySelected.value = null
+      identifyIsCorrect.value = null
+      identifyFeedbackPending.value = false
+      if (identifyIndex.value < identifyQuestions.value.length - 1) {
+        identifyIndex.value++
+        setTimeout(() => speakWord(identifyQuestions.value[identifyIndex.value].syllable.word), 300)
+      } else {
+        listenState.value = 'result'
+      }
+    }, 1500)
   } else {
+    // 记录首次错误答案
+    if (!(idx in identifyUserFirstAnswers.value)) {
+      identifyUserFirstAnswers.value[idx] = option.value
+    }
+
     playWrongSound()
     const randomMsg = randomEncourageAudio()
     playAudio(randomMsg)
-  }
 
-      setTimeout(() => {
-    identifySelected.value = null
-    identifyIsCorrect.value = null
-    if (identifyIndex.value < identifyQuestions.value.length - 1) {
-      identifyIndex.value++
-      // 焦点重置到喇叭图标
-      nextTick(() => identifySoundCard.value?.focus())
-      setTimeout(() => speakWord(identifyQuestions.value[identifyIndex.value].syllable.word), 300)
-    } else {
-      listenState.value = 'result'
-    }
-  }, 1500)
+    // 错误后重置选中状态，允许重试，并自动重播发音
+    setTimeout(() => {
+      releaseAnswerFocus(answerButton)
+      identifySelected.value = null
+      identifyIsCorrect.value = null
+      identifyFeedbackPending.value = false
+      speakWord(q.syllable.word)
+    }, 1200)
+  }
 }
 
 const identifyCorrectCount = computed(() => identifyHistory.value.filter(h => h.isCorrect).length)
@@ -565,6 +672,29 @@ watch(spellState, (s) => {
 })
 
 const questionCountOptions = [5, 10, 15, 20]
+
+// 测量小喇叭(.sound-card)的真实高度，赋给 --spk-h，
+// 使「词」按钮成为边长等于小喇叭高度的正方形
+function measureSpeakerHeight() {
+  const el = document.querySelector<HTMLElement>('.pinyin-tool .sound-card')
+  if (el) document.documentElement.style.setProperty('--spk-h', `${el.offsetHeight}px`)
+}
+
+// 状态切换 / 题目刷新后，DOM 重新渲染时重新测量
+watch([page, listenType, listenIndex, listenState, identifyType, identifyIndex, identifyState, spellIndex, spellState], () => {
+  nextTick(() => requestAnimationFrame(measureSpeakerHeight))
+})
+
+onMounted(() => {
+  measureSpeakerHeight()
+  window.addEventListener('resize', measureSpeakerHeight)
+  // 字体/音频加载可能导致高度变化，稍后再测一次
+  requestAnimationFrame(measureSpeakerHeight)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', measureSpeakerHeight)
+})
 </script>
 
 <template>
@@ -697,9 +827,12 @@ const questionCountOptions = [5, 10, 15, 20]
         <!-- 拼音模式：发音 + 选项 -->
         <template v-if="listenType === 'pinyin'">
           <!-- 发音区域 -->
-          <div class="sound-card" @click="speakWord(listenQuestions[listenIndex].syllable.word)">
-            <Volume2 :size="36" color="#3498db" />
-            <span>点击听发音</span>
+          <div class="sound-card-row">
+            <div ref="listenSoundCard" tabindex="0" class="sound-card" @click="speakWord(listenQuestions[listenIndex].syllable.word)">
+              <Volume2 :size="36" color="#3498db" />
+              <span class="pinyin-word-text">{{ listenQuestions[listenIndex].syllable.word }}</span>
+            </div>
+            <button class="word-group-btn" @click.stop="speakGroupWord(listenQuestions[listenIndex].syllable.word)" :title="hasGroupWord(listenQuestions[listenIndex].syllable.word) ? '听组词' : '暂无组词'">词</button>
           </div>
 
           <!-- 选项 -->
@@ -710,20 +843,20 @@ const questionCountOptions = [5, 10, 15, 20]
               class="listen-option"
               :class="{
                 selected: listenSelected === i,
-                correct: listenSelected !== null && opt.isCorrect,
+                correct: listenSelected !== null && listenIsCorrect === true && opt.isCorrect,
                 wrong: listenSelected === i && !opt.isCorrect,
               }"
-              :disabled="listenSelected !== null"
-              @click="handleListenSelect(i)"
+              :disabled="listenFeedbackPending"
+              @click="handleListenSelect(i, $event)"
             >
               <span class="pinyin-text">{{ opt.pinyin }}</span>
-              <Check v-if="listenSelected !== null && opt.isCorrect" :size="20" class="opt-mark" />
+              <Check v-if="listenSelected !== null && listenIsCorrect === true && opt.isCorrect" :size="20" class="opt-mark" />
               <X v-else-if="listenSelected === i && !opt.isCorrect" :size="20" class="opt-mark" />
             </button>
           </div>
 
           <div class="score-display">
-            正确：{{ listenHistory.filter(h => h.isCorrect).length }} / {{ listenIndex }}
+            正确：{{ listenFirstCorrect.size }} / {{ listenIndex }}
           </div>
         </template>
 
@@ -734,10 +867,12 @@ const questionCountOptions = [5, 10, 15, 20]
             <span class="identify-hint">这个发音的{{ identifyTypeLabels[identifyQuestions[identifyIndex].type] }}是什么？</span>
           </div>
 
-          <div ref="identifySoundCard" tabindex="0" class="sound-card identify-sound-card" @click="speakWord(identifyQuestions[identifyIndex].syllable.word)">
-            <Volume2 :size="36" color="#8e44ad" />
-            <span class="identify-word-text">{{ identifyQuestions[identifyIndex].syllable.word }}</span>
-            <span>点击听发音</span>
+          <div class="sound-card-row">
+            <div ref="identifySoundCard" tabindex="0" class="sound-card identify-sound-card" @click="speakWord(identifyQuestions[identifyIndex].syllable.word)">
+              <Volume2 :size="36" color="#8e44ad" />
+              <span class="identify-word-text">{{ identifyQuestions[identifyIndex].syllable.word }}</span>
+            </div>
+            <button class="word-group-btn purple" @click.stop="speakGroupWord(identifyQuestions[identifyIndex].syllable.word)" :title="hasGroupWord(identifyQuestions[identifyIndex].syllable.word) ? '听组词' : '暂无组词'">词</button>
           </div>
 
           <div class="identify-options" :class="{ 'show-result': identifySelected !== null }">
@@ -747,20 +882,20 @@ const questionCountOptions = [5, 10, 15, 20]
               class="identify-option"
               :class="{
                 selected: identifySelected === i,
-                correct: identifySelected !== null && opt.value === identifyQuestions[identifyIndex].correctValue,
+                correct: identifySelected !== null && identifyIsCorrect === true && opt.value === identifyQuestions[identifyIndex].correctValue,
                 wrong: identifySelected === i && opt.value !== identifyQuestions[identifyIndex].correctValue,
               }"
-              :disabled="identifySelected !== null"
-              @click="handleIdentifySelect(i)"
+              :disabled="identifyFeedbackPending"
+              @click="handleIdentifySelect(i, $event)"
             >
               <span class="identify-label">{{ opt.label }}</span>
-              <Check v-if="identifySelected !== null && opt.value === identifyQuestions[identifyIndex].correctValue" :size="24" class="opt-mark" />
+              <Check v-if="identifySelected !== null && identifyIsCorrect === true && opt.value === identifyQuestions[identifyIndex].correctValue" :size="24" class="opt-mark" />
               <X v-else-if="identifySelected === i && opt.value !== identifyQuestions[identifyIndex].correctValue" :size="24" class="opt-mark" />
             </button>
           </div>
 
           <div class="score-display">
-            正确：{{ identifyHistory.filter(h => h.isCorrect).length }} / {{ identifyIndex }}
+            正确：{{ identifyFirstCorrect.size }} / {{ identifyIndex }}
           </div>
         </template>
       </div>
@@ -793,7 +928,7 @@ const questionCountOptions = [5, 10, 15, 20]
 
           <div class="result-stats">
             <div class="stat-item">
-              <Check :size="20" color="#67c23a" />
+              <Check :size="20" color="#3498db" />
               <span class="stat-label">正确</span>
               <span class="stat-value correct-text">{{ listenCorrectCount }}</span>
             </div>
@@ -803,6 +938,44 @@ const questionCountOptions = [5, 10, 15, 20]
               <span class="stat-value wrong-text">{{ listenModeTotal - listenCorrectCount }}</span>
             </div>
           </div>
+        </div>
+
+        <!-- 答题记录（自动展示） -->
+        <div class="history-list">
+          <template v-if="listenType === 'pinyin'">
+            <div
+              v-for="(q, i) in listenQuestions"
+              :key="i"
+              class="history-item"
+              :class="{ correct: listenFirstCorrect.has(i), wrong: !listenFirstCorrect.has(i) }"
+              @click="speakWord(q.syllable.word)"
+            >
+              <span class="history-index">{{ i + 1 }}</span>
+              <span class="history-word">{{ q.syllable.word }}</span>
+              <span class="history-expr">{{ q.syllable.pinyin }}</span>
+              <span v-if="!listenFirstCorrect.has(i)" class="history-user">你选的：{{ listenUserFirstAnswers[i] }}</span>
+              <Volume2 :size="14" class="history-speaker" />
+              <Check v-if="listenFirstCorrect.has(i)" :size="16" class="icon-correct" />
+              <XCircle v-else :size="16" class="icon-wrong" />
+            </div>
+          </template>
+          <template v-else>
+            <div
+              v-for="(q, i) in identifyQuestions"
+              :key="i"
+              class="history-item"
+              :class="{ correct: identifyFirstCorrect.has(i), wrong: !identifyFirstCorrect.has(i) }"
+              @click="speakWord(q.syllable.word)"
+            >
+              <span class="history-index">{{ i + 1 }}</span>
+              <span class="history-word">{{ q.syllable.word }}</span>
+              <span class="history-expr">{{ q.correctValue }}</span>
+              <span v-if="!identifyFirstCorrect.has(i)" class="history-user">你选的：{{ identifyUserFirstAnswers[i] }}</span>
+              <Volume2 :size="14" class="history-speaker" />
+              <Check v-if="identifyFirstCorrect.has(i)" :size="16" class="icon-correct" />
+              <XCircle v-else :size="16" class="icon-wrong" />
+            </div>
+          </template>
         </div>
 
         <div class="result-buttons">
@@ -878,12 +1051,13 @@ const questionCountOptions = [5, 10, 15, 20]
           </div>
         </div>
 
-        <!-- 题目展示 -->
-        <div class="spell-question-card" :class="{ 'spell-correct': spellIsCorrect === true, 'spell-wrong': spellIsCorrect === false }">
-          <div class="spell-word">{{ spellQuestions[spellIndex].syllable.word }}</div>
-          <button class="btn-listen" @click="speakWord(spellQuestions[spellIndex].syllable.word)">
-            <Volume2 :size="18" /> 听发音
-          </button>
+        <!-- 题目展示（小喇叭直接复用听音辨音样式） -->
+        <div class="sound-card-row spell-question-card" :class="{ 'spell-correct': spellIsCorrect === true, 'spell-wrong': spellIsCorrect === false }">
+          <div class="sound-card" @click="speakWord(spellQuestions[spellIndex].syllable.word)">
+            <Volume2 :size="36" color="#3498db" />
+            <span class="pinyin-word-text">{{ spellQuestions[spellIndex].syllable.word }}</span>
+          </div>
+          <button class="word-group-btn" @click.stop="speakGroupWord(spellQuestions[spellIndex].syllable.word)" :title="hasGroupWord(spellQuestions[spellIndex].syllable.word) ? '听组词' : '暂无组词'">词</button>
         </div>
 
         <!-- 声母选择 -->
@@ -896,10 +1070,10 @@ const questionCountOptions = [5, 10, 15, 20]
               class="spell-opt"
               :class="{
                 selected: spellInitial === opt,
-                'correct-reveal': spellIsCorrect !== null && opt === spellQuestions[spellIndex].syllable.initial,
+                'correct-reveal': spellIsCorrect === true && opt === spellQuestions[spellIndex].syllable.initial,
                 'wrong-reveal': spellIsCorrect === false && spellInitial === opt && opt !== spellQuestions[spellIndex].syllable.initial,
               }"
-              :disabled="spellIsCorrect !== null"
+              :disabled="spellIsCorrect === true"
               @click="spellInitial = opt"
             >{{ opt }}</button>
           </div>
@@ -915,10 +1089,10 @@ const questionCountOptions = [5, 10, 15, 20]
               class="spell-opt"
               :class="{
                 selected: spellFinal === opt,
-                'correct-reveal': spellIsCorrect !== null && opt === spellQuestions[spellIndex].syllable.final,
+                'correct-reveal': spellIsCorrect === true && opt === spellQuestions[spellIndex].syllable.final,
                 'wrong-reveal': spellIsCorrect === false && spellFinal === opt && opt !== spellQuestions[spellIndex].syllable.final,
               }"
-              :disabled="spellIsCorrect !== null"
+              :disabled="spellIsCorrect === true"
               @click="spellFinal = opt"
             >{{ opt }}</button>
           </div>
@@ -934,14 +1108,14 @@ const questionCountOptions = [5, 10, 15, 20]
               class="spell-opt tone-opt"
               :class="{
                 selected: spellTone === t,
-                'correct-reveal': spellIsCorrect !== null && t === spellQuestions[spellIndex].syllable.tone,
+                'correct-reveal': spellIsCorrect === true && t === spellQuestions[spellIndex].syllable.tone,
                 'wrong-reveal': spellIsCorrect === false && spellTone === t && t !== spellQuestions[spellIndex].syllable.tone,
               }"
-              :disabled="spellIsCorrect !== null"
+              :disabled="spellIsCorrect === true"
               @click="spellTone = t"
             >
               <span class="tone-mark">{{ toneMarks[t] }}</span>
-              <span class="tone-label">第{{ ['','一','二','三','四'][t] }}声</span>
+              <span class="tone-label">{{ toneLabels[t] }}</span>
             </button>
           </div>
         </div>
@@ -949,8 +1123,8 @@ const questionCountOptions = [5, 10, 15, 20]
         <!-- 提交按钮 -->
         <button
           class="btn btn-submit"
-          :class="{ disabled: !allSpellSelected || spellIsCorrect !== null }"
-          :disabled="!allSpellSelected || spellIsCorrect !== null"
+          :class="{ disabled: !allSpellSelected || spellIsCorrect === true }"
+          :disabled="!allSpellSelected || spellIsCorrect === true"
           @click="submitSpellAnswer"
         >
           提交答案
@@ -989,7 +1163,7 @@ const questionCountOptions = [5, 10, 15, 20]
 
           <div class="result-stats">
             <div class="stat-item">
-              <Check :size="20" color="#67c23a" />
+              <Check :size="20" color="#3498db" />
               <span class="stat-label">正确</span>
               <span class="stat-value correct-text">{{ spellCorrectCount }}</span>
             </div>
@@ -998,6 +1172,25 @@ const questionCountOptions = [5, 10, 15, 20]
               <span class="stat-label">错误</span>
               <span class="stat-value wrong-text">{{ spellHistory.length - spellCorrectCount }}</span>
             </div>
+          </div>
+        </div>
+
+        <div class="history-list spell-history-list">
+          <h3 class="history-heading">答题记录</h3>
+          <div
+            v-for="(item, i) in spellHistory"
+            :key="i"
+            class="history-item"
+            :class="{ correct: item.isCorrect, wrong: !item.isCorrect }"
+            @click="speakWord(item.question)"
+          >
+            <span class="history-index">{{ i + 1 }}</span>
+            <span class="history-word">{{ item.question }}</span>
+            <span class="history-expr">{{ item.correctAnswer }}</span>
+            <span v-if="!item.isCorrect" class="history-user">你答：{{ item.userAnswer }}</span>
+            <Volume2 :size="14" class="history-speaker" />
+            <Check v-if="item.isCorrect" :size="16" class="icon-correct" />
+            <XCircle v-else :size="16" class="icon-wrong" />
           </div>
         </div>
 
@@ -1232,27 +1425,35 @@ const questionCountOptions = [5, 10, 15, 20]
   margin-top: 16px;
 }
 
-/* 听音辨音 — 发音区域 */
-.sound-card {
+/* 听音辨音 — 发音区域（与"词"按钮并列，等高等宽对齐） */
+.sound-card-row {
   display: flex;
-  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.sound-card {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: space-evenly;
   gap: 8px;
-  padding: 32px;
+  padding: 24px;
   background: #f0f7ff;
   border: 2px dashed #3498db;
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.2s;
-  margin-bottom: 24px;
 }
 .sound-card:hover {
   background: #e0efff;
   transform: scale(1.02);
 }
-.sound-card span {
-  font-size: 15px;
-  color: #3498db;
+.pinyin-word-text {
+  font-size: 36px;
+  font-weight: 700;
+  color: #2c3e50 !important;
 }
 
 /* 听音辨音 — 选项 */
@@ -1273,19 +1474,33 @@ const questionCountOptions = [5, 10, 15, 20]
   cursor: pointer;
   transition: all 0.2s;
   font-family: inherit;
-}
-.listen-option:not(:disabled):hover {
-  border-color: #3498db;
-  background: #f0f7ff;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .listen-option.selected { border-color: #3498db; }
 .listen-option.correct {
-  border-color: #67c23a;
-  background: #f0f9eb;
+  border-color: #3498db;
+  background: #e8f4fd;
 }
 .listen-option.wrong {
   border-color: #f56c6c;
   background: #fef0f0;
+}
+.listen-option:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.listen-option:disabled.correct {
+  border-color: #3498db;
+  background: #e8f4fd;
+}
+.listen-option:disabled.wrong {
+  border-color: #f56c6c;
+  background: #fef0f0;
+}
+.listen-option:focus-visible {
+  outline: 3px solid rgba(52, 152, 219, 0.35);
+  outline-offset: 2px;
 }
 .pinyin-text {
   font-size: 32px;
@@ -1298,38 +1513,72 @@ const questionCountOptions = [5, 10, 15, 20]
   right: 8px;
 }
 
-/* 拼读闯关 题目卡片 */
+/* 拼读闯关 题目卡片（移除多余嵌套，直接复用 sound-card-row） */
 .spell-question-card {
-  background: #fff;
-  border-radius: 16px;
-  padding: 32px;
-  text-align: center;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
   margin-bottom: 24px;
   transition: all 0.3s;
 }
-.spell-question-card.spell-correct { border: 2px solid #67c23a; background: #f0f9eb; }
-.spell-question-card.spell-wrong { border: 2px solid #f56c6c; background: #fef0f0; }
-.spell-word {
-  font-size: 64px;
-  font-weight: 700;
-  color: #2c3e50;
-  margin-bottom: 12px;
-}
-.btn-listen {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 14px;
-  background: #e8f4fd;
+.spell-question-card.spell-correct .sound-card { border-color: #3498db; background: #e8f4fd; }
+.spell-question-card.spell-wrong .sound-card { border-color: #f56c6c; background: #fef0f0; }
+
+
+/* 听组词"词"方形按钮：边长 = 兄弟小喇叭(.sound-card)高度（由 JS 写入 --spk-h），真正正方形 */
+.word-group-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  width: var(--spk-h, 80px);
+  height: var(--spk-h, 80px);
+  border: 2px solid #3498db;
+  border-radius: 16px;
+  background: #ebf5fc;
   color: #3498db;
-  border: 1px solid #dcdfe6;
-  border-radius: 8px;
+  font-size: 26px;
+  font-weight: 700;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  padding: 0;
   font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
-.btn-listen:hover { background: #d0e8fa; }
+.word-group-btn:hover {
+  background: #3498db;
+  color: #fff;
+  transform: scale(1.04);
+}
+.word-group-btn:active {
+  transform: scale(0.94);
+}
+.word-group-btn.purple {
+  border-color: #8e44ad;
+  background: #f5effb;
+  color: #8e44ad;
+}
+.word-group-btn.purple:hover {
+  background: #8e44ad;
+  color: #fff;
+}
+/* 无组词数据的降级样式 */
+.word-group-btn.disabled,
+.word-group-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none !important;
+}
+.word-group-btn.disabled:hover,
+.word-group-btn:disabled:hover {
+  background: #ebf5fc;
+  color: #3498db;
+  transform: none;
+}
+.word-group-btn.purple.disabled:hover,
+.word-group-btn.purple:disabled:hover {
+  background: #f5effb;
+  color: #8e44ad;
+}
 
 /* 拼读选项区 */
 .spell-section { margin-bottom: 16px; }
@@ -1340,7 +1589,7 @@ const questionCountOptions = [5, 10, 15, 20]
 }
 .spell-options {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
 }
 .spell-opt {
@@ -1369,7 +1618,7 @@ const questionCountOptions = [5, 10, 15, 20]
 }
 
 .tone-options {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
 }
 .tone-opt {
   display: flex;
@@ -1434,11 +1683,8 @@ const questionCountOptions = [5, 10, 15, 20]
 .identify-sound-card:hover {
   background: #ede1f6;
 }
-.identify-sound-card span {
-  color: #8e44ad;
-}
 .identify-word-text {
-  font-size: 22px;
+  font-size: 36px;
   font-weight: 700;
   color: #6c3483 !important;
 }
@@ -1464,31 +1710,48 @@ const questionCountOptions = [5, 10, 15, 20]
   -webkit-backface-visibility: hidden;
   -webkit-appearance: none;
   appearance: none;
-}
-.identify-option:not(:disabled):hover {
-  border-color: #8e44ad;
-  background: #faf5ff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(142, 68, 173, 0.15);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .identify-option.selected { border-color: #8e44ad; }
 .identify-option.correct {
-  border-color: #67c23a;
-  background: #f0f9eb;
+  border-color: #3498db;
+  background: #e8f4fd;
 }
 .identify-option.wrong {
   border-color: #f56c6c;
   background: #fef0f0;
 }
 .identify-option:disabled {
+  opacity: 1;
   background: #fff;
   cursor: default;
 }
 .identify-option:disabled.correct {
-  background: #f0f9eb;
+  border-color: #3498db;
+  background: #e8f4fd;
 }
 .identify-option:disabled.wrong {
+  border-color: #f56c6c;
   background: #fef0f0;
+}
+.identify-option:focus-visible {
+  outline: 3px solid rgba(142, 68, 173, 0.3);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .listen-option:not(:disabled):hover {
+    border-color: #3498db;
+    background: #f0f7ff;
+  }
+
+  .identify-option:not(:disabled):hover {
+    border-color: #8e44ad;
+    background: #faf5ff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(142, 68, 173, 0.15);
+  }
 }
 .identify-label {
   font-size: 48px;
@@ -1599,6 +1862,76 @@ const questionCountOptions = [5, 10, 15, 20]
 }
 .btn-back-lobby:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(103,194,58,0.5); }
 
+/* 答题记录列表（结果页自动展示） */
+.history-list {
+  margin: 20px 0 24px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 12px;
+}
+.history-heading {
+  margin: 0 0 12px;
+  color: #2c3e50;
+  font-size: 16px;
+  text-align: left;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: #f5f7fa;
+  gap: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.history-item:last-child { margin-bottom: 0; }
+.history-item:hover { background: #e8eaed; }
+.history-item.correct { background: #e8f4fd; }
+.history-item.correct:hover { background: #d6eafa; }
+.history-item.wrong { background: #fef0f0; }
+.history-item.wrong:hover { background: #fde2e2; }
+.history-speaker {
+  color: #3498db;
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.history-item:hover .history-speaker { opacity: 1; }
+.history-index {
+  width: 24px; height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: 50%;
+  font-size: 12px;
+  color: #909399;
+  flex-shrink: 0;
+}
+.history-word {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2c3e50;
+  flex-shrink: 0;
+  min-width: 32px;
+  text-align: center;
+}
+.history-expr {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+.history-user {
+  font-size: 13px;
+  color: #f56c6c;
+  flex-shrink: 0;
+}
+.icon-correct { color: #3498db; flex-shrink: 0; }
+.icon-wrong { color: #f56c6c; flex-shrink: 0; }
+
 /* 移动端 */
 @media (max-width: 768px) {
   .panel-title { font-size: 24px; }
@@ -1608,12 +1941,13 @@ const questionCountOptions = [5, 10, 15, 20]
   .btn-home { font-size: 12px; padding: 6px 10px; }
 
   .listen-options { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .spell-opt { font-size: 15px; padding: 10px 6px; }
+  .tone-mark { font-size: 22px; }
   .pinyin-text { font-size: 26px; }
   .listen-option { padding: 16px; }
 
-  .spell-word { font-size: 48px; }
-  .spell-options { grid-template-columns: repeat(2, 1fr); }
-  .tone-options { grid-template-columns: repeat(2, 1fr); }
+  .spell-options { grid-template-columns: repeat(5, 1fr); }
+  .tone-options { grid-template-columns: repeat(5, 1fr); }
 
   .result-title { font-size: 26px; }
   .result-card { padding: 20px; }

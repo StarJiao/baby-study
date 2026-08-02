@@ -11,6 +11,90 @@ export interface Syllable {
 
 export const syllables: Syllable[] = [
   {
+    "word": "国",
+    "pinyin": "guó",
+    "initial": "g",
+    "final": "uo",
+    "tone": 2
+  },
+  {
+    "word": "发",
+    "pinyin": "fā",
+    "initial": "f",
+    "final": "a",
+    "tone": 1
+  },
+  {
+    "word": "个",
+    "pinyin": "gè",
+    "initial": "g",
+    "final": "e",
+    "tone": 4
+  },
+  {
+    "word": "作",
+    "pinyin": "zuò",
+    "initial": "z",
+    "final": "uo",
+    "tone": 4
+  },
+  {
+    "word": "企",
+    "pinyin": "qǐ",
+    "initial": "q",
+    "final": "i",
+    "tone": 3
+  },
+  {
+    "word": "资",
+    "pinyin": "zī",
+    "initial": "z",
+    "final": "i",
+    "tone": 1
+  },
+  {
+    "word": "于",
+    "pinyin": "yú",
+    "initial": "y",
+    "final": "u",
+    "tone": 2
+  },
+  {
+    "word": "化",
+    "pinyin": "huà",
+    "initial": "h",
+    "final": "ua",
+    "tone": 4
+  },
+  {
+    "word": "加",
+    "pinyin": "jiā",
+    "initial": "j",
+    "final": "ia",
+    "tone": 1
+  },
+  {
+    "word": "区",
+    "pinyin": "qū",
+    "initial": "q",
+    "final": "u",
+    "tone": 1
+  },
+  {
+    "word": "就",
+    "pinyin": "jiù",
+    "initial": "j",
+    "final": "iu",
+    "tone": 4
+  },
+  {
+    "word": "元",
+    "pinyin": "yuán",
+    "initial": "y",
+    "final": "uan",
+    "tone": 2
+  },
+  {
     "word": "的",
     "pinyin": "de",
     "initial": "d",

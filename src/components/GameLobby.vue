@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Home, Calculator, BookOpen, PenLine } from 'lucide-vue-next'
+import { Home, Calculator, PenLine, Type } from 'lucide-vue-next'
 
 interface GameModule {
   id: string
@@ -11,8 +11,9 @@ interface GameModule {
 
 const modules: GameModule[] = [
   { id: 'calculation', name: '计算练习', icon: Calculator, desc: '加减法运算练习', enabled: true },
-  { id: 'english', name: '英语学习', icon: BookOpen, desc: '即将上线 🚧', enabled: false },
-  { id: 'pinyin', name: '拼音学习', icon: PenLine, desc: '听音辨音 & 拼读闯关', enabled: true },
+  { id: 'pinyin', name: '拼音学习', icon: Type, desc: '听音辨音 & 拼读闯关', enabled: true },
+  { id: 'character', name: '汉字初识', icon: PenLine, desc: '字卡闪卡 & 笔顺动画', enabled: true },
+  { id: 'english', name: '英语学习', icon: 'A', desc: '即将上线 🚧', enabled: false },
 ]
 
 const emit = defineEmits<{
@@ -44,7 +45,8 @@ const handleSelect = (m: GameModule) => {
         @click="handleSelect(m)"
       >
         <div class="card-icon">
-          <component :is="m.icon" :size="48" :color="m.enabled ? '#3498db' : '#909399'" />
+          <span v-if="m.icon === 'A'" class="letter-a" :style="{ color: m.enabled ? '#3498db' : '#909399' }">A</span>
+          <component v-else :is="m.icon" :size="48" :color="m.enabled ? '#3498db' : '#909399'" />
         </div>
         <h3 class="card-name">{{ m.name }}</h3>
         <p class="card-desc">{{ m.desc }}</p>
@@ -129,6 +131,13 @@ const handleSelect = (m: GameModule) => {
   justify-content: center;
   background: #f5f7fa;
   border-radius: 50%;
+}
+
+.letter-a {
+  font-size: 48px;
+  font-weight: 700;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  line-height: 1;
 }
 
 .card-name {
