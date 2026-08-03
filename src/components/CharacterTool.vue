@@ -92,6 +92,8 @@ const onTouchEnd = (e: TouchEvent) => {
 }
 
 // ==================== 音频播放 ====================
+import { audioUrl } from '../audioConfig'
+
 let currentAudio: HTMLAudioElement | null = null
 
 const stopAudio = () => {
@@ -100,8 +102,7 @@ const stopAudio = () => {
 
 const speakText = (text: string) => {
   stopAudio()
-  const path = `/audio/${text}.mp3`
-  const audio = new Audio(path)
+  const audio = new Audio(audioUrl(`${text}.mp3`))
   currentAudio = audio
   audio.play().catch(() => {})
 }

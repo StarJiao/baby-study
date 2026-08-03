@@ -82,14 +82,15 @@ const onTouchEnd = (e: TouchEvent) => {
 // 英语音频存放于 /audio/en/ 下，字母与单词各自一个 mp3
 let currentAudio: HTMLAudioElement | null = null
 
+import { audioUrl } from '../audioConfig'
+
 const stopAudio = () => {
   if (currentAudio) { currentAudio.pause(); currentAudio = null }
 }
 
 const speakText = (text: string) => {
   stopAudio()
-  const path = `/audio/en/${text}.mp3`
-  const audio = new Audio(path)
+  const audio = new Audio(audioUrl(`en/${text}.mp3`))
   currentAudio = audio
   audio.play().catch(() => {})
 }

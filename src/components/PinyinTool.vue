@@ -53,26 +53,27 @@ const toneMarks: Record<number, string> = { 0: '˙', 1: 'ˉ', 2: 'ˊ', 3: 'ˇ', 
 const toneLabels: Record<number, string> = { 0: '轻声', 1: '第一声', 2: '第二声', 3: '第三声', 4: '第四声' }
 
 // ===================== 音频播放 =====================
+import { audioUrl } from '../audioConfig'
 
 // 预生成音频路径映射
-const getWordAudio = (word: string) => `/audio/${word}.mp3`
+const getWordAudio = (word: string) => audioUrl(`${word}.mp3`)
 
 const praiseAudios = [
-  '/audio/praise_太棒了.mp3', '/audio/praise_你真厉害.mp3', '/audio/praise_非常好.mp3',
-  '/audio/praise_超级棒.mp3', '/audio/praise_哇太厉害了.mp3', '/audio/praise_好样的.mp3',
-  '/audio/praise_真聪明.mp3', '/audio/praise_完美.mp3', '/audio/praise_厉害极了.mp3',
-  '/audio/praise_真棒.mp3',
+  audioUrl('praise_太棒了.mp3'), audioUrl('praise_你真厉害.mp3'), audioUrl('praise_非常好.mp3'),
+  audioUrl('praise_超级棒.mp3'), audioUrl('praise_哇太厉害了.mp3'), audioUrl('praise_好样的.mp3'),
+  audioUrl('praise_真聪明.mp3'), audioUrl('praise_完美.mp3'), audioUrl('praise_厉害极了.mp3'),
+  audioUrl('praise_真棒.mp3'),
 ]
 
 const encourageAudios = [
-  '/audio/encourage_再想想哦.mp3', '/audio/encourage_再试试.mp3',
-  '/audio/encourage_仔细听听.mp3',
+  audioUrl('encourage_再想想哦.mp3'), audioUrl('encourage_再试试.mp3'),
+  audioUrl('encourage_仔细听听.mp3'),
 ]
 
 const resultAudios: Record<string, string> = {
-  excellent: '/audio/result_太棒了，你超级厉害.mp3',
-  good: '/audio/result_做得不错，继续加油.mp3',
-  keepGoing: '/audio/result_再接再厉哦.mp3',
+  excellent: audioUrl('result_太棒了，你超级厉害.mp3'),
+  good: audioUrl('result_做得不错，继续加油.mp3'),
+  keepGoing: audioUrl('result_再接再厉哦.mp3'),
 }
 
 let currentAudio: HTMLAudioElement | null = null
@@ -107,7 +108,7 @@ const speakWord = (word: string) => {
   playAudio(getWordAudio(word))
 }
 
-const getWordGroupAudio = (word: string) => `/audio/word/${word}.mp3`
+const getWordGroupAudio = (word: string) => audioUrl(`word/${word}.mp3`)
 
 const hasGroupWord = (word: string): boolean => {
   return !!charWordMap[word]
@@ -119,7 +120,7 @@ const speakGroupWord = (word: string) => {
     playAudio(getWordGroupAudio(word))
   } else {
     // 无组词数据时，回退播放该字单字音频，避免按钮点击无反应
-    playAudio(`/audio/word/${word}.mp3`)
+    playAudio(audioUrl(`word/${word}.mp3`))
   }
 }
 
